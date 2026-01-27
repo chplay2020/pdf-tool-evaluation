@@ -1,0 +1,25 @@
+{
+  "doc_id": "test_simple",
+  "nodes": [],
+  "processing_info": {
+    "source_file": "test_simple.pdf",
+    "processed_at": "2026-01-27T03:47:58.433048",
+    "pipeline_version": "1.0.0",
+    "total_nodes": 0,
+    "chunking_stats": {
+      "total_nodes": 5,
+      "min_tokens": 20,
+      "max_tokens": 200,
+      "avg_tokens": 28
+    },
+    "audit_stats": {
+      "original_count": 5,
+      "after_dedup": 5,
+      "after_merge": 5,
+      "final_count": 0,
+      "removed_duplicates": 0,
+      "merged_nodes": 0,
+      "removed_invalid": 5
+    }
+  }
+}
