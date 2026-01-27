@@ -1,160 +1,310 @@
-# PDF Tool Evaluation Framework
+# LightRAG PDF Preprocessing Pipeline
 
-A comprehensive evaluation framework for comparing PDF processing tools (PyMuPDF, Marker, and Nougat) for NLP and RAG applications.
+Pipeline tiền xử lý PDF cho LightRAG - chuyển đổi PDF học thuật tiếng Việt thành semantic nodes.
 
-## Overview
+## 📋 Tổng quan
 
-This project provides scripts and documentation to evaluate and compare three PDF processing tools:
+Pipeline này chuyển đổi file PDF thành các semantic nodes tương thích với LightRAG, bao gồm:
+- ✅ Chuyển đổi PDF → Markdown (Marker)
+- ✅ Làm sạch nội dung (loại header/footer, normalize whitespace)
+- ✅ Sửa lỗi tiếng Việt (line-break, OCR errors)
+- ✅ Tạo semantic nodes (150-400 tokens)
+- ✅ Deduplication và quality assurance
 
-| Tool | Type | Output Format | Best For |
-|------|------|---------------|----------|
-| **PyMuPDF** | Rule-based extraction | Plain text | Fast processing, simple documents |
-| **Marker** | Deep learning | Markdown | RAG applications, structured output |
-| **Nougat** | Neural OCR | Markdown/LaTeX | Academic papers, mathematical content |
-
-## Project Structure
+## 🏗️ Cấu trúc Project
 
 ```
 pdf-tool-evaluation/
-├── README.md                   # This file
-├── requirements.txt            # Python dependencies
-├── METHODOLOGY.md              # Detailed methodology documentation
-├── CONCLUSION.md               # Evaluation conclusions and recommendations
+├── README.md                      # File này
+├── .gitignore
 │
-├── 01_test_pymupdf.py          # PyMuPDF evaluation script
-├── 02_test_marker.py           # Marker evaluation script  
-├── 03_test_nougat.py           # Nougat evaluation script
-├── 04_compare_outputs.py       # Output comparison script
-│
-├── test.pdf                    # Input PDF (user-provided)
-│
-├── pymupdf_output.txt          # PyMuPDF output (generated)
-├── marker_output.txt           # Marker output (generated)
-├── nougat_output.txt           # Nougat output (generated)
-│
-├── pymupdf_stats.json          # PyMuPDF statistics (generated)
-├── marker_stats.json           # Marker statistics (generated)
-├── nougat_stats.json           # Nougat statistics (generated)
-│
-├── comparison_results.json     # Comparison data (generated)
-└── comparison_summary.txt      # Summary report (generated)
+└── src/
+    ├── main_pipeline.py           # Script chính - chạy toàn bộ pipeline
+    ├── marker.py                  # Module chuyển đổi PDF → Markdown
+    ├── requirements.txt           # Dependencies
+    │
+    ├── pipeline/                  # Các module xử lý
+    │   ├── __init__.py
+    │   ├── cleaning_v1.py         # Bước 1: Làm sạch markdown
+    │   ├── final_cleaning.py      # Bước 2: Sửa lỗi tiếng Việt
+    │   ├── chunking.py            # Bước 3: Tạo semantic nodes
+    │   └── audit_nodes.py         # Bước 4: Deduplication & QA
+    │
+    ├── data/
+    │   ├── raw/                   # Input: File PDF
+    │   └── processed/             # Output: File JSON cho LightRAG
+    │
+    ├── temp_pipeline/             # (Optional) Kết quả intermediate
+    └── venv_marker/               # Virtual environment
 ```
 
-## Quick Start
+## 🚀 Hướng dẫn Cài đặt
 
-### 1. Setup Environment
+### 1. Clone Repository
 
 ```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or: venv\Scripts\activate  # Windows
+git clone <repository-url>
+cd pdf-tool-evaluation/src
+```
 
-# Install dependencies
+### 2. Tạo Virtual Environment
+
+```bash
+# Tạo virtual environment
+python3 -m venv venv_marker
+
+# Kích hoạt (Linux/Mac)
+source venv_marker/bin/activate
+
+# Kích hoạt (Windows)
+venv_marker\Scripts\activate
+```
+
+### 3. Cài đặt Dependencies
+
+```bash
 pip install -r requirements.txt
 ```
 
-### 2. Prepare Test Document
+**Lưu ý:** Marker sẽ tự động download models (~2-3GB) khi chạy lần đầu.
 
-Place your test PDF file in the project directory:
+## 📝 Cách Sử dụng
+
+### Bước 1: Chuẩn bị File PDF
+
+Đặt file PDF vào thư mục `data/raw/`:
+
 ```bash
-cp /path/to/your/document.pdf test.pdf
+cp /path/to/your/document.pdf data/raw/
 ```
 
-### 3. Run Evaluation
+### Bước 2: Xem Danh sách PDF
 
 ```bash
-# Test PyMuPDF (fastest, no GPU required)
-python 01_test_pymupdf.py
-
-# Test Marker (GPU recommended)
-python 02_test_marker.py
-
-# Test Nougat (GPU required for practical use)
-python 03_test_nougat.py
-
-# Compare all outputs
-python 04_compare_outputs.py
+python main_pipeline.py --list
 ```
 
-## Requirements
+### Bước 3: Chạy Pipeline
 
-### Software Requirements
+**Cách 1: Sử dụng mặc định (150-400 tokens/node)**
 
-| Dependency | Version | Required For |
-|------------|---------|--------------|
-| Python | 3.9+ | All tools |
-| PyMuPDF | Latest | 01_test_pymupdf.py |
-| marker-pdf | Latest | 02_test_marker.py |
-| nougat-ocr | Latest | 03_test_nougat.py |
-| PyTorch | 2.0+ | Marker, Nougat |
-| CUDA | 11.8+ | GPU acceleration |
+```bash
+python main_pipeline.py document.pdf
+```
 
-### Hardware Requirements
+**Cách 2: Tùy chỉnh kích thước node**
 
-| Tool | CPU | RAM | GPU |
-|------|-----|-----|-----|
-| PyMuPDF | Any | 4 GB | Not required |
-| Marker | 4+ cores | **16 GB** (CPU mode) | Recommended (4GB+ VRAM) |
-| Nougat | 8+ cores | 16 GB | Required (6GB+ VRAM) |
+```bash
+python main_pipeline.py document.pdf --min-tokens 200 --max-tokens 500
+```
 
-## Script Descriptions
+**Cách 3: Lưu kết quả intermediate (debug)**
 
-### 01_test_pymupdf.py
+```bash
+python main_pipeline.py document.pdf --save-intermediate
+```
 
-Extracts text from PDF using PyMuPDF's native text extraction.
+### Bước 4: Kiểm tra Kết quả
 
-**Features**:
-- Page-by-page text extraction
-- Character and word counting
-- Processing time measurement
-- JSON statistics export
+```bash
+# Xem file output
+ls -lh data/processed/
 
-**Output**: `pymupdf_output.txt`, `pymupdf_stats.json`
+# Xem nội dung JSON
+cat data/processed/document_lightrag.json | head -50
+```
 
-### 02_test_marker.py
+## ⚙️ Options
 
-Converts PDF to Markdown using Marker's deep learning models.
+| Option | Default | Mô tả |
+|--------|---------|-------|
+| `--min-tokens` | 150 | Số tokens tối thiểu mỗi node |
+| `--max-tokens` | 400 | Số tokens tối đa mỗi node |
+| `--duplicate-threshold` | 0.85 | Ngưỡng similarity để loại duplicate (0-1) |
+| `--save-intermediate` | False | Lưu kết quả từng bước vào `temp_pipeline/` |
+| `--list` | - | Hiển thị danh sách PDF có sẵn |
 
-**Features**:
-- Markdown conversion with structure preservation
-- Image extraction
-- Table and equation handling
-- Command-line and API usage examples
+## 📤 Format Output
 
-**Output**: `marker_output/`, `marker_output.txt`, `marker_stats.json`
+File JSON trong `data/processed/<doc_id>_lightrag.json`:
 
-### 03_test_nougat.py
+```json
+{
+  "doc_id": "document_name",
+  "nodes": [
+    {
+      "id": "document_name_node_0000",
+      "content": "Nội dung của node...",
+      "section": "Tiêu đề section",
+      "metadata": {
+        "doc_id": "document_name",
+        "node_index": 0,
+        "token_estimate": 250
+      }
+    }
+  ],
+  "processing_info": {
+    "source_file": "document_name.pdf",
+    "processed_at": "2026-01-27T...",
+    "total_nodes": 15,
+    "chunking_stats": {...},
+    "audit_stats": {...}
+  }
+}
+```
 
-Processes PDF using Nougat's neural OCR for academic documents.
+## 💻 Yêu cầu Hệ thống
 
-**Features**:
-- Academic document understanding
-- LaTeX mathematical notation
-- CUDA availability detection
-- Hardware recommendations
+### Software
 
-**Output**: `nougat_output_dir/`, `nougat_output.txt`, `nougat_stats.json`
+| Package | Version | Mục đích |
+|---------|---------|----------|
+| Python | 3.9+ | Runtime |
+| marker-pdf | 0.2.0+ | PDF → Markdown |
+| PyTorch | 2.0+ | Deep learning models |
 
-### 04_compare_outputs.py
+### Hardware
 
-Compares outputs from all three tools.
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| CPU | 4 cores | 8+ cores |
+| RAM | 8 GB | 16 GB |
+| GPU | Không bắt buộc | NVIDIA (4GB+ VRAM) |
+| Disk | 5 GB | 10 GB (cho models) |
 
-**Features**:
-- Quantitative metric comparison
-- Similarity matrix calculation
-- Performance benchmarking
-- Summary report generation
+**Lưu ý:** Pipeline hiện chạy ở CPU mode (không cần GPU)
 
-**Output**: `comparison_results.json`, `comparison_summary.txt`
+## 🔧 Pipeline Architecture
 
-## Evaluation Metrics
+Pipeline gồm 5 bước xử lý tuần tự:
 
-### Quantitative Metrics
+### 1. **Marker Conversion** (`marker.py`)
+- Chuyển đổi PDF → Markdown sử dụng deep learning
+- Output: JSON với markdown content
 
-- **Character Count**: Total extracted characters
-- **Word Count**: Total extracted words
-- **Line Count**: Number of output lines
+### 2. **Initial Cleaning** (`pipeline/cleaning_v1.py`)
+- Loại bỏ header/footer lặp lại
+- Normalize whitespace
+- Xóa page artifacts (số trang, dividers)
+- Output: `cleaned_content`
+
+### 3. **Vietnamese Cleanup** (`pipeline/final_cleaning.py`)
+- Sửa lỗi line-break trong tiếng Việt
+- Sửa lỗi OCR thường gặp
+- Normalize punctuation
+- Output: `final_content`
+
+### 4. **Semantic Chunking** (`pipeline/chunking.py`)
+- Tạo semantic nodes (150-400 tokens)
+- Split theo heading và paragraph
+- Không bao giờ split câu
+- Output: `nodes[]`
+
+### 5. **Audit & Deduplication** (`pipeline/audit_nodes.py`)
+- Loại bỏ duplicate/near-duplicate nodes
+- Merge các node ngắn liền kề
+- Validate chất lượng node
+- Output: Final `nodes[]`
+
+## 🎯 Sử dụng với LightRAG
+
+```python
+import json
+from lightrag import LightRAG
+
+# Load processed nodes
+with open('src/data/processed/document_lightrag.json', 'r', encoding='utf-8') as f:
+    data = json.load(f)
+
+# Initialize LightRAG
+rag = LightRAG(working_dir="./lightrag_db")
+
+# Ingest nodes
+for node in data['nodes']:
+    rag.insert(node['content'])
+
+# Query
+result = rag.query("Câu hỏi của bạn?")
+print(result)
+```
+
+## 🐛 Troubleshooting
+
+### Lỗi: "Marker not installed"
+```bash
+pip install marker-pdf
+```
+
+### Lỗi: Out of memory
+```bash
+# Giảm batch size hoặc sử dụng PDF nhỏ hơn
+# Marker cần ~8GB RAM cho CPU mode
+```
+
+### Lỗi: File PDF không tìm thấy
+```bash
+# Kiểm tra file có trong data/raw/
+ls -lh src/data/raw/
+
+# Sử dụng tên file chính xác
+python main_pipeline.py --list
+```
+
+### Xem log chi tiết
+```bash
+# Pipeline có logging tự động, xem terminal output
+python main_pipeline.py document.pdf 2>&1 | tee pipeline.log
+```
+
+## 📊 Ví dụ
+
+```bash
+# Ví dụ 1: Xử lý file PDF đơn giản
+python main_pipeline.py test_simple.pdf
+
+# Ví dụ 2: PDF tiếng Việt với custom settings
+python main_pipeline.py "Dụng cụ nhổ răng-compressed.pdf" --min-tokens 200 --max-tokens 600
+
+# Ví dụ 3: Debug với intermediate files
+python main_pipeline.py document.pdf --save-intermediate
+ls -lh temp_pipeline/
+```
+
+## 📝 Development
+
+### Chạy test cho từng module
+
+```bash
+# Test cleaning_v1
+cd src/pipeline
+python cleaning_v1.py
+
+# Test final_cleaning
+python final_cleaning.py
+
+# Test chunking
+python chunking.py
+
+# Test audit_nodes
+python audit_nodes.py
+```
+
+## 📄 License
+
+MIT License - xem file LICENSE để biết thêm chi tiết.
+
+## 🤝 Contributing
+
+Pull requests welcome! Vui lòng:
+1. Fork repository
+2. Tạo feature branch
+3. Commit với message rõ ràng
+4. Push và tạo Pull Request
+
+## 📧 Contact
+
+Nếu có vấn đề hoặc câu hỏi, vui lòng tạo issue trên GitHub.
+
 - **Processing Time**: Conversion duration
 - **Output Size**: File size in bytes
 
