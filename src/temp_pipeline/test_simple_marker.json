@@ -1,0 +1,7 @@
+{
+  "source_file": "test_simple.pdf",
+  "conversion_tool": "marker-pdf",
+  "conversion_time": "2026-01-27T04:01:10.892842",
+  "content_type": "markdown",
+  "content": "# **PDF Processing Tools Evaluation**\n\nThis document tests three PDF processing tools:\n\n- 1. PyMuPDF Fast text extraction\n- 2. Marker PDF to Markdown conversion\n- 3. Nougat Neural OCR for academic papers\n\n## **Key Features**\n\n## PyMuPDF:\n\n- Lightweight and fast\n- Works on CPU only\n- Suitable for simple text extraction\n\n#### Marker:\n\n- Deep learning based\n- Produces markdown output\n- Good for RAG applications\n\n## Nougat:\n\n- Academic paper specialist\n- Handles mathematical equations\n- Requires GPU for practical use\n\n# **Conclusion**\n\nEach tool has its strengths. PyMuPDF is best for speed, Marker excels at structure preservation, and Nougat specializes in academic content with complex formatting."
+}
