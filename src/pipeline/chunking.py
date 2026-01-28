@@ -163,7 +163,7 @@ def split_into_paragraphs(text: str) -> list[str]:
     return paragraphs
 
 
-def create_node(content: str, section: str, doc_id: str, node_index: int) -> Node:
+def create_node(content: str, section: str, doc_id: str, node_index: int, tags: list[str] = None) -> Node:
     """
     Create a new node with generated ID.
     
@@ -172,21 +172,27 @@ def create_node(content: str, section: str, doc_id: str, node_index: int) -> Nod
         section: Section heading
         doc_id: Document identifier
         node_index: Sequential node index
+        tags: Optional list of tags for the node
         
     Returns:
         Node object
     """
     node_id = f"{doc_id}_node_{node_index:04d}"
     
+    metadata = {
+        "doc_id": doc_id,
+        "node_index": node_index,
+        "token_estimate": estimate_tokens(content)
+    }
+    
+    if tags is not None:
+        metadata["tags"] = tags
+    
     return Node(
         id=node_id,
         content=content.strip(),
         section=section,
-        metadata={
-            "doc_id": doc_id,
-            "node_index": node_index,
-            "token_estimate": estimate_tokens(content)
-        }
+        metadata=metadata
     )
 
 
@@ -196,7 +202,8 @@ def chunk_section(
     doc_id: str,
     start_index: int,
     min_tokens: int = 150,
-    max_tokens: int = 400
+    max_tokens: int = 400,
+    tags: list[str] = None
 ) -> tuple[list[Node], int]:
     """
     Chunk a section into nodes of appropriate size.
@@ -208,6 +215,7 @@ def chunk_section(
         start_index: Starting node index
         min_tokens: Minimum tokens per node
         max_tokens: Maximum tokens per node
+        tags: Optional list of tags for the nodes
         
     Returns:
         Tuple of (list of nodes, next index)
@@ -232,7 +240,8 @@ def chunk_section(
                     '\n\n'.join(current_content),
                     section_heading,
                     doc_id,
-                    current_index
+                    current_index,
+                    tags
                 )
                 nodes.append(node)
                 current_index += 1
@@ -253,7 +262,8 @@ def chunk_section(
                         ' '.join(sentence_buffer),
                         section_heading,
                         doc_id,
-                        current_index
+                        current_index,
+                        tags
                     )
                     nodes.append(node)
                     current_index += 1
@@ -271,7 +281,8 @@ def chunk_section(
                         remaining,
                         section_heading,
                         doc_id,
-                        current_index
+                        current_index,
+                        tags
                     )
                     nodes.append(node)
                     current_index += 1
@@ -287,7 +298,8 @@ def chunk_section(
                     '\n\n'.join(current_content),
                     section_heading,
                     doc_id,
-                    current_index
+                    current_index,
+                    tags
                 )
                 nodes.append(node)
                 current_index += 1
@@ -309,7 +321,8 @@ def chunk_section(
                 remaining_text,
                 section_heading,
                 doc_id,
-                current_index
+                current_index,
+                tags
             )
             nodes.append(node)
             current_index += 1
@@ -321,7 +334,8 @@ def chunk_section(
                 merged_content,
                 prev_node.section,
                 doc_id,
-                prev_node.metadata["node_index"]
+                prev_node.metadata["node_index"],
+                tags
             )
         else:
             # Create small node anyway if it's the only content
@@ -329,7 +343,8 @@ def chunk_section(
                 remaining_text,
                 section_heading,
                 doc_id,
-                current_index
+                current_index,
+                tags
             )
             nodes.append(node)
             current_index += 1
@@ -340,7 +355,8 @@ def chunk_section(
 def chunk_to_nodes(
     data: dict[str, Any],
     min_tokens: int = 150,
-    max_tokens: int = 400
+    max_tokens: int = 400,
+    tags: list[str] = None
 ) -> dict[str, Any]:
     """
     Convert final_content into semantic nodes for LightRAG.
@@ -351,6 +367,7 @@ def chunk_to_nodes(
         data: Dictionary containing 'final_content' field
         min_tokens: Minimum tokens per node (default: 150)
         max_tokens: Maximum tokens per node (default: 400)
+        tags: Optional list of tags to apply to all nodes
         
     Returns:
         Dictionary with original fields plus 'nodes' list
@@ -391,7 +408,8 @@ def chunk_to_nodes(
             doc_id,
             current_index,
             min_tokens,
-            max_tokens
+            max_tokens,
+            tags
         )
         all_nodes.extend(section_nodes)
     
@@ -403,7 +421,8 @@ def chunk_to_nodes(
             doc_id,
             0,
             min_tokens,
-            max_tokens
+            max_tokens,
+            tags
         )
     
     # Convert nodes to dictionaries

@@ -141,16 +141,6 @@ def clean_ocr_artifacts(text: str) -> str:
 
         # Space before punctuation
         (r'\s+([.!?,;:])', r'\1'),
-
-        # Broken Vietnamese words caused by OCR spacing
-        (
-            r'(?<=[a-zàáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩị'
-            r'òóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ])\s'
-            r'(?=[a-zàáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩị'
-            r'òóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ]{1,2}\s)',
-            '',
-            re.IGNORECASE
-        ),
     ]
 
     for item in replacements:
