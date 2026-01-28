@@ -1,6 +1,6 @@
 # LightRAG PDF Preprocessing Pipeline
 
-Pipeline tiền xử lý PDF cho LightRAG - chuyển đổi PDF học thuật tiếng Việt thành semantic nodes.
+Pipeline tiền xử lý PDF cho LightRAG - chuyển đổi PDF đa lĩnh vực (Y học, CNTT, Kinh tế, Luật, ...) thành semantic nodes với auto-tagging.
 
 ## 📋 Tổng quan
 
@@ -10,6 +10,8 @@ Pipeline này chuyển đổi file PDF thành các semantic nodes tương thích
 - ✅ Sửa lỗi tiếng Việt (line-break, OCR errors)
 - ✅ Tạo semantic nodes (150-400 tokens)
 - ✅ Deduplication và quality assurance
+- ✅ **Auto-tagging đa lĩnh vực** (Y học, CNTT, Kinh tế, Luật, ...)
+- ✅ **Export text files** để review trước khi train AI
 
 ## 🏗️ Cấu trúc Project
 
@@ -21,6 +23,7 @@ pdf-tool-evaluation/
 └── src/
     ├── main_pipeline.py           # Script chính - chạy toàn bộ pipeline
     ├── marker.py                  # Module chuyển đổi PDF → Markdown
+    ├── export_text.py             # Export JSON → Text files
     ├── requirements.txt           # Dependencies
     │
     ├── pipeline/                  # Các module xử lý
@@ -28,11 +31,13 @@ pdf-tool-evaluation/
     │   ├── cleaning_v1.py         # Bước 1: Làm sạch markdown
     │   ├── final_cleaning.py      # Bước 2: Sửa lỗi tiếng Việt
     │   ├── chunking.py            # Bước 3: Tạo semantic nodes
-    │   └── audit_nodes.py         # Bước 4: Deduplication & QA
+    │   ├── audit_nodes.py         # Bước 4: Deduplication & QA
+    │   └── auto_tagging.py        # Bước 5: Auto-tagging đa lĩnh vực
     │
     ├── data/
     │   ├── raw/                   # Input: File PDF
-    │   └── processed/             # Output: File JSON cho LightRAG
+    │   ├── processed/             # Output: File JSON cho LightRAG
+    │   └── exported/              # Output: File text để review
     │
     ├── temp_pipeline/             # (Optional) Kết quả intermediate
     └── venv_marker/               # Virtual environment
@@ -107,11 +112,17 @@ python main_pipeline.py document.pdf --save-intermediate
 ### Bước 4: Kiểm tra Kết quả
 
 ```bash
-# Xem file output
+# Xem file output JSON
 ls -lh data/processed/
+
+# Xem file text đã export
+ls -lh data/exported/
 
 # Xem nội dung JSON
 cat data/processed/document_lightrag.json | head -50
+
+# Xem file text để review
+cat data/exported/document_detailed.txt
 ```
 
 ## ⚙️ Options
@@ -126,7 +137,7 @@ cat data/processed/document_lightrag.json | head -50
 
 ## 📤 Format Output
 
-File JSON trong `data/processed/<doc_id>_lightrag.json`:
+### 1. File JSON: `data/processed/<doc_id>_lightrag.json`
 
 ```json
 {
@@ -139,16 +150,24 @@ File JSON trong `data/processed/<doc_id>_lightrag.json`:
       "metadata": {
         "doc_id": "document_name",
         "node_index": 0,
-        "token_estimate": 250
+        "token_estimate": 250,
+        "tags": ["Tim mạch", "Chẩn đoán y khoa"],
+        "domain": "Y học"
       }
     }
   ],
   "processing_info": {
     "source_file": "document_name.pdf",
     "processed_at": "2026-01-27T...",
+    "pipeline_version": "1.1.0",
     "total_nodes": 15,
     "chunking_stats": {...},
-    "audit_stats": {...}
+    "audit_stats": {...},
+    "tagging_stats": {
+      "total_unique_tags": 8,
+      "unique_tags": ["Tim mạch", "Huyết áp", ...],
+      "detected_domains": ["Y học"]
+    }
   }
 }
 ```
@@ -174,9 +193,56 @@ File JSON trong `data/processed/<doc_id>_lightrag.json`:
 
 **Lưu ý:** Pipeline hiện chạy ở CPU mode (không cần GPU)
 
+### 2. File Text: `data/exported/`
+
+Pipeline tự động tạo 3 file text để review:
+
+| File | Mô tả | Dùng cho |
+|------|-------|----------|
+| `*_plain.txt` | Chỉ nội dung text | Đọc nhanh |
+| `*_detailed.txt` | Nội dung + metadata, tags, domain | Review chi tiết |
+| `*_training.txt` | Format tối ưu cho AI training | Chuẩn bị dataset |
+
+## 🤖 Auto-Tagging
+
+Pipeline tự động phân loại nội dung và gán tags dựa trên từ khóa.
+
+### Các lĩnh vực được hỗ trợ:
+
+| Lĩnh vực | Ví dụ Tags |
+|----------|-----------|
+| **Y học** | Tim mạch, Huyết áp, Hô hấp, Tiêu hóa, Thần kinh, Ung bướu, Chẩn đoán y khoa, Can thiệp - Phẫu thuật, ... |
+| **Công nghệ thông tin** | Python, JavaScript, Database, Cloud Computing, AI, DevOps, Lập trình, Bảo mật, ... |
+| **Kinh tế - Tài chính** | Ngân hàng, Chứng khoán, Đầu tư, Marketing, Kế toán, Fintech, Khởi nghiệp, ... |
+| **Luật** | Luật Dân sự, Luật Hình sự, Luật Thương mại, Luật Lao động, Sở hữu trí tuệ, ... |
+| **Giáo dục** | Giáo dục đại học, E-Learning, Nghiên cứu học thuật, Phương pháp giảng dạy, ... |
+| **Kỹ thuật** | Cơ khí, Điện - Điện tử, Tự động hóa, Hóa học, Vật lý, Toán học, ... |
+| **Nông nghiệp** | Trồng trọt, Chăn nuôi, Thủy sản, Nông nghiệp công nghệ cao, ... |
+| **Xây dựng** | Kiến trúc, Xây dựng dân dụng, Bất động sản, ... |
+| **Môi trường** | Biến đổi khí hậu, Xử lý ô nhiễm, Năng lượng tái tạo, Bảo tồn, ... |
+
+### Cách hoạt động:
+
+1. Hệ thống phân tích nội dung node
+2. Tìm từ khóa khớp với các lĩnh vực
+3. Tự động gán:
+   - **Domain**: Lĩnh vực chính (Y học, CNTT, ...)
+   - **Tags**: Các chủ đề chi tiết
+
+### Ví dụ:
+
+```json
+{
+  "content": "Tim mạch là lĩnh vực nghiên cứu về tim và mạch máu...",
+  "metadata": {
+    "domain": "Y học",
+    "tags": ["Tim mạch", "Huyết áp", "Chẩn đoán y khoa"]
+  }
+}
+```
 ## 🔧 Pipeline Architecture
 
-Pipeline gồm 5 bước xử lý tuần tự:
+Pipeline gồm **7 bước** xử lý tuần tự:
 
 ### 1. **Marker Conversion** (`marker.py`)
 - Chuyển đổi PDF → Markdown sử dụng deep learning
@@ -204,180 +270,16 @@ Pipeline gồm 5 bước xử lý tuần tự:
 - Loại bỏ duplicate/near-duplicate nodes
 - Merge các node ngắn liền kề
 - Validate chất lượng node
-- Output: Final `nodes[]`
+- Output: Cleaned `nodes[]`
 
-## 🎯 Sử dụng với LightRAG
+### 6. **Auto-Tagging** (`pipeline/auto_tagging.py`)
+- Tự động phát hiện lĩnh vực (domain)
+- Gán tags dựa trên nội dung
+- Hỗ trợ 10+ lĩnh vực (Y học, CNTT, Kinh tế, ...)
+- Output: Tagged `nodes[]`
 
-```python
-import json
-from lightrag import LightRAG
-
-# Load processed nodes
-with open('src/data/processed/document_lightrag.json', 'r', encoding='utf-8') as f:
-    data = json.load(f)
-
-# Initialize LightRAG
-rag = LightRAG(working_dir="./lightrag_db")
-
-# Ingest nodes
-for node in data['nodes']:
-    rag.insert(node['content'])
-
-# Query
-result = rag.query("Câu hỏi của bạn?")
-print(result)
-```
-
-## 🐛 Troubleshooting
-
-### Lỗi: "Marker not installed"
-```bash
-pip install marker-pdf
-```
-
-### Lỗi: Out of memory
-```bash
-# Giảm batch size hoặc sử dụng PDF nhỏ hơn
-# Marker cần ~8GB RAM cho CPU mode
-```
-
-### Lỗi: File PDF không tìm thấy
-```bash
-# Kiểm tra file có trong data/raw/
-ls -lh src/data/raw/
-
-# Sử dụng tên file chính xác
-python main_pipeline.py --list
-```
-
-### Xem log chi tiết
-```bash
-# Pipeline có logging tự động, xem terminal output
-python main_pipeline.py document.pdf 2>&1 | tee pipeline.log
-```
-
-## 📊 Ví dụ
-
-```bash
-# Ví dụ 1: Xử lý file PDF đơn giản
-python main_pipeline.py test_simple.pdf
-
-# Ví dụ 2: PDF tiếng Việt với custom settings
-python main_pipeline.py "Dụng cụ nhổ răng-compressed.pdf" --min-tokens 200 --max-tokens 600
-
-# Ví dụ 3: Debug với intermediate files
-python main_pipeline.py document.pdf --save-intermediate
-ls -lh temp_pipeline/
-```
-
-## 📝 Development
-
-### Chạy test cho từng module
-
-```bash
-# Test cleaning_v1
-cd src/pipeline
-python cleaning_v1.py
-
-# Test final_cleaning
-python final_cleaning.py
-
-# Test chunking
-python chunking.py
-
-# Test audit_nodes
-python audit_nodes.py
-```
-
-## 📄 License
-
-MIT License - xem file LICENSE để biết thêm chi tiết.
-
-## 🤝 Contributing
-
-Pull requests welcome! Vui lòng:
-1. Fork repository
-2. Tạo feature branch
-3. Commit với message rõ ràng
-4. Push và tạo Pull Request
-
-## 📧 Contact
-
-Nếu có vấn đề hoặc câu hỏi, vui lòng tạo issue trên GitHub.
-
-- **Processing Time**: Conversion duration
-- **Output Size**: File size in bytes
-
-### Qualitative Metrics
-
-- **Structure Preservation**: Heading and list retention
-- **Mathematical Notation**: Equation accuracy
-- **Table Handling**: Table structure preservation
-- **RAG Compatibility**: Suitability for vector embedding
-
-## Results Interpretation
-
-After running all scripts, check:
-
-1. **comparison_summary.txt** - Human-readable summary
-2. **comparison_results.json** - Machine-readable metrics
-3. **Individual stats files** - Detailed per-tool statistics
-
-## Recommendations
-
-| Use Case | Recommended Tool |
-|----------|------------------|
-| High-volume processing | PyMuPDF |
-| RAG applications | Marker |
-| Academic papers | Nougat |
-| Resource-constrained | PyMuPDF |
-| Structured output needed | Marker |
-
-## Documentation
-
-- [METHODOLOGY.md](METHODOLOGY.md) - Detailed evaluation methodology
-- [CONCLUSION.md](CONCLUSION.md) - Results and recommendations
-
-## Troubleshooting
-
-### PyMuPDF Issues
-```bash
-# Reinstall PyMuPDF
-pip uninstall pymupdf
-pip install pymupdf
-```
-
-### Marker Issues
-```bash
-# Install with GPU support
-pip install marker-pdf[gpu]
-
-# Check CUDA
-python -c "import torch; print(torch.cuda.is_available())"
-```
-
-### Nougat Issues
-```bash
-# Ensure CUDA is available
-python -c "import torch; print(torch.cuda.is_available())"
-
-# Install specific PyTorch version
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-pip install nougat-ocr
-```
-
-## License
-
-This evaluation framework is provided for research and educational purposes.
-
-## Citation
-
-If you use this evaluation framework in your research, please cite the individual tools:
-
-- **PyMuPDF**: https://github.com/pymupdf/PyMuPDF
-- **Marker**: https://github.com/VikParuchuri/marker
-- **Nougat**: https://github.com/facebookresearch/nougat
-
----
-
-*Last updated: January 2026*
+### 7. **Export Text Files** (`export_text.py`)
+- Tạo file plain text để review
+- Tạo file detailed với metadata
+- Tạo file training format cho AI
+- Output: 3 text files trong `data/exported/`
