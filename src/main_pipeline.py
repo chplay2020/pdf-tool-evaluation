@@ -41,6 +41,7 @@ from pipeline.cleaning_v1 import clean_marker_output
 from pipeline.final_cleaning import final_clean_content
 from pipeline.chunking import chunk_to_nodes
 from pipeline.audit_nodes import audit_and_merge_nodes
+from pipeline.auto_tagging import add_tags_to_nodes
 
 
 # Configure logging
@@ -228,6 +229,55 @@ def run_audit_step(
     return result
 
 
+def run_auto_tagging_step(
+    data: dict[str, Any],
+    source_file: str = "",
+    max_tags_per_node: int = 10
+) -> dict[str, Any]:
+    """
+    Run auto-tagging step to classify content.
+    
+    Args:
+        data: Data with nodes list
+        source_file: Source filename for context
+        max_tags_per_node: Maximum tags per node
+        
+    Returns:
+        Data with tagged nodes
+    """
+    logger.info("Step 6: Auto-tagging nodes based on content")
+    
+    nodes = data.get("nodes", [])
+    tagged_nodes = add_tags_to_nodes(nodes, source_file, max_tags_per_node)
+    
+    # Count unique tags and domains
+    all_tags = set()
+    all_domains = set()
+    for node in tagged_nodes:
+        metadata = node.get("metadata", {})
+        tags = metadata.get("tags", [])
+        domain = metadata.get("domain", "")
+        all_tags.update(tags)
+        if domain:
+            all_domains.add(domain)
+    
+    result = data.copy()
+    result["nodes"] = tagged_nodes
+    result["tagging_stats"] = {
+        "total_unique_tags": len(all_tags),
+        "unique_tags": sorted(list(all_tags)),
+        "detected_domains": sorted(list(all_domains))
+    }
+    
+    logger.info(f"  ✓ Tagged {len(tagged_nodes)} nodes with {len(all_tags)} unique tags")
+    if all_domains:
+        logger.info(f"    Domains: {', '.join(sorted(list(all_domains)))}")
+    if all_tags:
+        logger.info(f"    Tags: {', '.join(sorted(list(all_tags))[:5])}{'...' if len(all_tags) > 5 else ''}")
+    
+    return result
+
+
 def create_lightrag_output(data: dict[str, Any], doc_id: str) -> dict[str, Any]:
     """
     Create final LightRAG-compatible output format.
@@ -256,10 +306,11 @@ def create_lightrag_output(data: dict[str, Any], doc_id: str) -> dict[str, Any]:
         "processing_info": {
             "source_file": data.get("source_file", ""),
             "processed_at": datetime.now().isoformat(),
-            "pipeline_version": "1.0.0",
+            "pipeline_version": "1.1.0",
             "total_nodes": len(nodes),
             "chunking_stats": data.get("chunking_stats", {}),
-            "audit_stats": data.get("audit_stats", {})
+            "audit_stats": data.get("audit_stats", {}),
+            "tagging_stats": data.get("tagging_stats", {})
         }
     }
     
@@ -339,8 +390,15 @@ def run_full_pipeline(
             with open(TEMP_DIR / f"{doc_id}_05_audited.json", "w", encoding="utf-8") as f:
                 json.dump(audited_data, f, ensure_ascii=False, indent=2)
         
+        # Step 6: Auto-tagging
+        tagged_data = run_auto_tagging_step(audited_data, source_file=pdf_path.name)
+        
+        if save_intermediate:
+            with open(TEMP_DIR / f"{doc_id}_06_tagged.json", "w", encoding="utf-8") as f:
+                json.dump(tagged_data, f, ensure_ascii=False, indent=2)
+        
         # Create final output
-        output = create_lightrag_output(audited_data, doc_id)
+        output = create_lightrag_output(tagged_data, doc_id)
         
         # Save final output
         output_path = PROCESSED_DIR / f"{doc_id}_lightrag.json"
