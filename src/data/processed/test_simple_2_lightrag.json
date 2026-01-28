@@ -23,7 +23,7 @@
   ],
   "processing_info": {
     "source_file": "test_simple_2.pdf",
-    "processed_at": "2026-01-28T10:12:35.032810",
+    "processed_at": "2026-01-28T10:27:05.454796",
     "pipeline_version": "1.1.0",
     "total_nodes": 1,
     "chunking_stats": {

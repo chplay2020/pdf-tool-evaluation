@@ -42,6 +42,7 @@ from pipeline.final_cleaning import final_clean_content
 from pipeline.chunking import chunk_to_nodes
 from pipeline.audit_nodes import audit_and_merge_nodes
 from pipeline.auto_tagging import add_tags_to_nodes
+from export_text import export_plain_text, export_detailed_text, export_training_format, EXPORT_DIR
 
 
 # Configure logging
@@ -405,9 +406,20 @@ def run_full_pipeline(
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(output, f, ensure_ascii=False, indent=2)
         
+        # Step 7: Export text files for review
+        logger.info("Step 7: Exporting text files for review")
+        EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+        
+        export_plain_text(output, EXPORT_DIR / f"{doc_id}_plain.txt")
+        export_detailed_text(output, EXPORT_DIR / f"{doc_id}_detailed.txt")
+        export_training_format(output, EXPORT_DIR / f"{doc_id}_training.txt")
+        
+        logger.info(f"  ✓ Exported 3 text files to {EXPORT_DIR}")
+        
         logger.info("=" * 60)
         logger.info(f"✓ Pipeline completed successfully!")
-        logger.info(f"  Output: {output_path}")
+        logger.info(f"  JSON Output: {output_path}")
+        logger.info(f"  Text Files: {EXPORT_DIR}")
         logger.info(f"  Nodes: {len(output['nodes'])}")
         logger.info("=" * 60)
         
