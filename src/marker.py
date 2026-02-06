@@ -29,6 +29,7 @@ import glob
 import shutil
 from pathlib import Path
 from datetime import datetime
+from typing import Any
 
 
 # =============================================================================
@@ -134,13 +135,14 @@ File Descriptions:
 """
 
 
-def run_marker_conversion_to_json(input_pdf: str, output_json: str) -> dict:
+def run_marker_conversion_to_json(input_pdf: str, output_json: str, device: str = "cpu") -> dict[str, Any]:
     """
     Run Marker conversion and save result as JSON with text content.
     
     Args:
         input_pdf: Path to the input PDF file
         output_json: Path to save the JSON output
+        device: Device to use for processing ("cpu" or "gpu"). Default: "cpu"
         
     Returns:
         Dictionary containing conversion statistics
@@ -150,8 +152,14 @@ def run_marker_conversion_to_json(input_pdf: str, output_json: str) -> dict:
         "output_json": output_json,
         "success": False,
         "conversion_time_seconds": 0,
+        "device": device,
         "error": None
     }
+    
+    # Validate device
+    if device not in ["cpu", "gpu"]:
+        stats["error"] = f"Invalid device: {device}. Must be 'cpu' or 'gpu'"
+        return stats
     
     # Check if input file exists
     if not os.path.exists(input_pdf):
@@ -179,10 +187,19 @@ def run_marker_conversion_to_json(input_pdf: str, output_json: str) -> dict:
     start_time = time.time()
     
     try:
-        # Set environment to use CPU if GPU is incompatible
+        # Set environment based on device
         env = os.environ.copy()
-        env["CUDA_VISIBLE_DEVICES"] = ""  # Force CPU mode
-        print("Note: Running on CPU (GPU disabled for compatibility)")
+        
+        if device == "cpu":
+            # Force CPU mode
+            env["CUDA_VISIBLE_DEVICES"] = ""
+            print("Note: Running on CPU (CUDA disabled)")
+        else:  # device == "gpu"
+            # Enable GPU - let system use available CUDA devices
+            if "CUDA_VISIBLE_DEVICES" in env:
+                del env["CUDA_VISIBLE_DEVICES"]
+            print("Note: Running on GPU (CUDA enabled)")
+        
         print("-" * 50)
         
         # Run the Marker command

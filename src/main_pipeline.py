@@ -24,7 +24,6 @@ Author: Research Assistant
 Date: January 2026
 """
 
-import os
 import sys
 import json
 import argparse
@@ -95,12 +94,13 @@ def find_pdf_file(pdf_name: str) -> Path | None:
     return None
 
 
-def run_marker_step(pdf_path: Path) -> dict[str, Any]:
+def run_marker_step(pdf_path: Path, device: str = "cpu") -> dict[str, Any]:
     """
     Run Marker conversion step.
     
     Args:
         pdf_path: Path to input PDF
+        device: Device to use ("cpu" or "gpu")
         
     Returns:
         Marker JSON output
@@ -109,11 +109,12 @@ def run_marker_step(pdf_path: Path) -> dict[str, Any]:
         RuntimeError: If conversion fails
     """
     logger.info(f"Step 1: Running Marker conversion on {pdf_path.name}")
+    logger.info(f"  Device: {device.upper()}")
     
     # Output to temp directory
     temp_json = TEMP_DIR / f"{pdf_path.stem}_marker.json"
     
-    stats = run_marker_conversion_to_json(str(pdf_path), str(temp_json))
+    stats = run_marker_conversion_to_json(str(pdf_path), str(temp_json), device=device)
     
     if not stats.get("success"):
         raise RuntimeError(f"Marker conversion failed: {stats.get('error', 'Unknown error')}")
@@ -252,8 +253,8 @@ def run_auto_tagging_step(
     tagged_nodes = add_tags_to_nodes(nodes, source_file, max_tags_per_node)
     
     # Count unique tags and domains
-    all_tags = set()
-    all_domains = set()
+    all_tags: set[str] = set()
+    all_domains: set[str] = set()
     for node in tagged_nodes:
         metadata = node.get("metadata", {})
         tags = metadata.get("tags", [])
@@ -291,7 +292,7 @@ def create_lightrag_output(data: dict[str, Any], doc_id: str) -> dict[str, Any]:
         LightRAG-compatible output
     """
     # Extract only the nodes with required fields
-    nodes = []
+    nodes: list[dict[str, Any]] = []
     for node in data.get("nodes", []):
         lightrag_node = {
             "id": node["id"],
@@ -301,7 +302,7 @@ def create_lightrag_output(data: dict[str, Any], doc_id: str) -> dict[str, Any]:
         }
         nodes.append(lightrag_node)
     
-    output = {
+    output: dict[str, Any] = {
         "doc_id": doc_id,
         "nodes": nodes,
         "processing_info": {
@@ -323,7 +324,8 @@ def run_full_pipeline(
     min_tokens: int = 150,
     max_tokens: int = 400,
     duplicate_threshold: float = 0.85,
-    save_intermediate: bool = False
+    save_intermediate: bool = False,
+    device: str = "cpu"
 ) -> dict[str, Any]:
     """
     Run the complete preprocessing pipeline.
@@ -334,6 +336,7 @@ def run_full_pipeline(
         max_tokens: Maximum tokens per node
         duplicate_threshold: Similarity threshold for deduplication
         save_intermediate: Whether to save intermediate results
+        device: Device to use for processing ("cpu" or "gpu")
         
     Returns:
         LightRAG-compatible output dictionary
@@ -346,6 +349,7 @@ def run_full_pipeline(
     
     logger.info("=" * 60)
     logger.info(f"Starting LightRAG preprocessing pipeline for: {pdf_name}")
+    logger.info(f"Device: {device.upper()}")
     logger.info("=" * 60)
     
     # Find PDF file
@@ -357,7 +361,7 @@ def run_full_pipeline(
     
     try:
         # Step 1: Marker conversion
-        marker_output = run_marker_step(pdf_path)
+        marker_output = run_marker_step(pdf_path, device=device)
         
         if save_intermediate:
             with open(TEMP_DIR / f"{doc_id}_01_marker.json", "w", encoding="utf-8") as f:
@@ -449,6 +453,7 @@ def main():
         epilog="""
 Examples:
     python main_pipeline.py document.pdf
+    python main_pipeline.py document.pdf --device gpu
     python main_pipeline.py document.pdf --min-tokens 200 --max-tokens 500
     python main_pipeline.py document.pdf --save-intermediate
     python main_pipeline.py --list
@@ -459,6 +464,14 @@ Examples:
         "pdf_name",
         nargs="?",
         help="Name of PDF file in data/raw/ (with or without .pdf extension)"
+    )
+    
+    parser.add_argument(
+        "--device",
+        type=str,
+        choices=["cpu", "gpu"],
+        default="cpu",
+        help="Device to use for processing: 'cpu' (default) or 'gpu'"
     )
     
     parser.add_argument(
@@ -517,7 +530,8 @@ Examples:
             min_tokens=args.min_tokens,
             max_tokens=args.max_tokens,
             duplicate_threshold=args.duplicate_threshold,
-            save_intermediate=args.save_intermediate
+            save_intermediate=args.save_intermediate,
+            device=args.device
         )
         
         # Print summary
