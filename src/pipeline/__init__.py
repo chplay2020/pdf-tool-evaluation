@@ -21,10 +21,13 @@ from .cleaning_v1 import clean_marker_output
 from .final_cleaning import final_clean_content
 from .chunking import chunk_to_nodes
 from .audit_nodes import audit_and_merge_nodes
+from .export_standard import export_standard_json_files, convert_lightrag_to_standard
 
 __all__ = [
     "clean_marker_output",
     "final_clean_content", 
     "chunk_to_nodes",
     "audit_and_merge_nodes",
+    "export_standard_json_files",
+    "convert_lightrag_to_standard",
 ]

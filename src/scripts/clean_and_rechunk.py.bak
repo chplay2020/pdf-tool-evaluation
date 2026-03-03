@@ -1,0 +1,881 @@
+#!/usr/bin/env python3
+"""
+Clean and Rechunk - Medical PDF Node Processor
+===============================================
+
+Cleans OCR artifacts and rechunks by document structure for RAG/Knowledge Graph.
+
+Features:
+1) CLEAN NOISE: Remove image links, footer logs, gibberish OCR, spam patterns
+2) REPAIR TABLES: Merge continuation lines, fix separators, normalize pipes
+3) NORMALIZE: Fix headers, bullets, remove junk separators
+4) RECHUNK: By section boundaries, never cut inside tables
+
+Usage:
+    python scripts/clean_and_rechunk.py data/processed/ --output cleaned_nodes/
+    python scripts/clean_and_rechunk.py data/processed/ --dry-run
+"""
+
+import re
+import json
+import argparse
+import logging
+from pathlib import Path
+from dataclasses import dataclass, field
+from typing import Any, cast
+from collections import defaultdict
+
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# DATA CLASSES
+# =============================================================================
+
+@dataclass
+class CleaningStats:
+    """Statistics for cleaning operations"""
+    total_files: int = 0
+    total_nodes: int = 0
+    image_links_removed: int = 0
+    footer_lines_removed: int = 0
+    spam_lines_removed: int = 0
+    gibberish_lines_removed: int = 0
+    tables_repaired: int = 0
+    continuation_lines_merged: int = 0
+    separator_rows_fixed: int = 0
+    headers_normalized: int = 0
+    junk_separators_removed: int = 0
+    output_nodes: int = 0
+    output_chunks: int = 0
+
+
+def _empty_list() -> list[str]:
+    return []
+
+
+@dataclass
+class TableBlock:
+    """Represents a markdown table block"""
+    start_line: int
+    end_line: int
+    lines: list[str] = field(default_factory=_empty_list)
+    column_count: int = 0
+
+
+# =============================================================================
+# CLEANING FUNCTIONS
+# =============================================================================
+
+def remove_image_links(content: str, stats: CleaningStats) -> str:
+    """Remove local image links like ![](_page_*.jpeg) or ![](Picture*.jpeg)"""
+    patterns = [
+        r'!\[\]\([^)]*_page_[^)]*\.jpeg\)',
+        r'!\[\]\([^)]*Picture[^)]*\.jpeg\)',
+        r'!\[\]\([^)]*\.jpeg\)',
+        r'!\[\]\([^)]*\.png\)',
+        r'!\[\]\([^)]*\.jpg\)',
+    ]
+    
+    for pattern in patterns:
+        matches = re.findall(pattern, content, re.IGNORECASE)
+        stats.image_links_removed += len(matches)
+        content = re.sub(pattern, '', content, flags=re.IGNORECASE)
+    
+    return content
+
+
+def remove_footer_lines(content: str, stats: CleaningStats) -> str:
+    """Remove footer/system log lines like kcb_...dd/mm/yyyy hh:mm:ss"""
+    lines = content.split('\n')
+    cleaned_lines: list[str] = []
+    
+    # Patterns for footer logs
+    footer_patterns = [
+        r'kcb_[^\s]*\d{2}/\d{2}/\d{4}',  # kcb_...dd/mm/yyyy
+        r'kcb_[^\s]*\d{2}:\d{2}:\d{2}',  # kcb_...hh:mm:ss
+        r'^kcb[_\.][^\n]{10,}$',          # kcb_ or kcb. followed by junk
+        r'<PARSED TEXT>',
+        r'\[Page\s*\d+\]',
+    ]
+    
+    for line in lines:
+        is_footer = False
+        for pattern in footer_patterns:
+            if re.search(pattern, line, re.IGNORECASE):
+                is_footer = True
+                stats.footer_lines_removed += 1
+                break
+        if not is_footer:
+            cleaned_lines.append(line)
+    
+    return '\n'.join(cleaned_lines)
+
+
+def remove_spam_lines(content: str, stats: CleaningStats) -> str:
+    """Remove spam/repetitive lines (token repeated >20 times)"""
+    lines = content.split('\n')
+    cleaned_lines: list[str] = []
+    
+    for line in lines:
+        # Skip empty lines
+        if not line.strip():
+            cleaned_lines.append(line)
+            continue
+        
+        # Check for token repetition
+        tokens = line.split()
+        if len(tokens) >= 3:
+            token_counts: dict[str, int] = defaultdict(int)
+            for token in tokens:
+                token_counts[token] += 1
+            
+            max_repeat = max(token_counts.values()) if token_counts else 0
+            
+            # If any single token repeats > 20 times → spam
+            if max_repeat > 20:
+                stats.spam_lines_removed += 1
+                continue
+            
+            # Check for pattern like "200 A 200 A 200 A"
+            if len(set(tokens)) <= 3 and len(tokens) > 10:
+                stats.spam_lines_removed += 1
+                continue
+        
+        cleaned_lines.append(line)
+    
+    return '\n'.join(cleaned_lines)
+
+
+def remove_gibberish_lines(content: str, stats: CleaningStats) -> str:
+    """Remove gibberish OCR lines (low valid char ratio, long lines)"""
+    lines = content.split('\n')
+    cleaned_lines: list[str] = []
+    
+    # Valid Vietnamese/ASCII chars
+    valid_pattern = re.compile(r'[a-zA-ZÀ-ỹ0-9\s\.\,\;\:\!\?\-\(\)\[\]\{\}\|\+\=\*\/\#\@\%\&\"\'\`\~]')
+    
+    for line in lines:
+        stripped = line.strip()
+        
+        # Skip short lines
+        if len(stripped) <= 80:
+            cleaned_lines.append(line)
+            continue
+        
+        # Calculate valid char ratio
+        if stripped:
+            valid_chars = len(valid_pattern.findall(stripped))
+            ratio = valid_chars / len(stripped)
+            
+            # If < 60% valid chars and line is long → gibberish
+            if ratio < 0.6:
+                stats.gibberish_lines_removed += 1
+                continue
+        
+        # Check for specific gibberish patterns
+        gibberish_patterns = [
+            r'deo da la la companya',
+            r'([^\s])\1{10,}',  # Same char repeated 10+ times
+        ]
+        
+        is_gibberish = False
+        for pattern in gibberish_patterns:
+            if re.search(pattern, line, re.IGNORECASE):
+                is_gibberish = True
+                stats.gibberish_lines_removed += 1
+                break
+        
+        if not is_gibberish:
+            cleaned_lines.append(line)
+    
+    return '\n'.join(cleaned_lines)
+
+
+# =============================================================================
+# TABLE REPAIR FUNCTIONS
+# =============================================================================
+
+def detect_table_blocks(content: str) -> list[TableBlock]:
+    """Detect markdown table blocks (consecutive lines with |)"""
+    lines = content.split('\n')
+    blocks: list[TableBlock] = []
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        
+        # Check if line contains | (potential table)
+        if '|' in line:
+            # Start of potential table block
+            block_start = i
+            block_lines = [line]
+            j = i + 1
+            
+            # Collect all consecutive lines that are part of table
+            while j < len(lines):
+                next_line = lines[j]
+                
+                # Line is part of table if:
+                # 1. Contains |
+                # 2. Or is a continuation (non-empty, doesn't start with #, not a separator)
+                if '|' in next_line:
+                    block_lines.append(next_line)
+                    j += 1
+                elif next_line.strip() and not next_line.strip().startswith('#') and not is_junk_separator(next_line):
+                    # Potential continuation line
+                    block_lines.append(next_line)
+                    j += 1
+                else:
+                    break
+            
+            # Only consider as table if >= 2 lines with |
+            pipe_lines = sum(1 for l in block_lines if '|' in l)
+            if pipe_lines >= 2:
+                block = TableBlock(
+                    start_line=block_start,
+                    end_line=j - 1,
+                    lines=block_lines
+                )
+                # Detect column count from first proper row
+                for bl in block_lines:
+                    if bl.strip().startswith('|'):
+                        block.column_count = bl.count('|') - 1
+                        break
+                blocks.append(block)
+            
+            i = j
+        else:
+            i += 1
+    
+    return blocks
+
+
+def merge_continuation_lines(table_lines: list[str], stats: CleaningStats) -> list[str]:
+    """Merge continuation lines into previous row (lines not starting with |)"""
+    if not table_lines:
+        return table_lines
+    
+    merged: list[str] = []
+    
+    for line in table_lines:
+        stripped = line.strip()
+        
+        # If line starts with | → new row
+        if stripped.startswith('|'):
+            merged.append(line)
+        # If line doesn't start with | but we have previous row → continuation
+        elif merged and stripped:
+            # Merge with previous line
+            stats.continuation_lines_merged += 1
+            merged[-1] = merged[-1].rstrip() + ' ' + stripped
+        else:
+            # Keep as is (empty or first line)
+            merged.append(line)
+    
+    return merged
+
+
+def fix_separator_row(row: str, column_count: int, stats: CleaningStats) -> str:
+    """Fix separator row like |-----...long...-----| to |---|---|---|"""
+    # Check if this is a separator row (contains mostly -)
+    if re.search(r'\|[\s\-:]+\|', row):
+        # Count cells
+        cells = row.strip().split('|')
+        cells = [c for c in cells if c.strip() or c == '']
+        
+        # If it's a long separator, normalize it
+        if any(len(c) > 10 and set(c.strip()) <= {'-', ':', ' '} for c in cells):
+            stats.separator_rows_fixed += 1
+            # Generate proper separator
+            sep_cells = ['---'] * max(column_count, 3)
+            return '|' + '|'.join(sep_cells) + '|'
+    
+    return row
+
+
+def normalize_table_row(row: str) -> str:
+    """Ensure row starts and ends with |"""
+    stripped = row.strip()
+    
+    if not stripped:
+        return row
+    
+    # Fix double pipes at start
+    while stripped.startswith('||'):
+        stripped = stripped[1:]
+    
+    # Ensure starts with |
+    if not stripped.startswith('|'):
+        stripped = '|' + stripped
+    
+    # Ensure ends with |
+    if not stripped.endswith('|'):
+        stripped = stripped + '|'
+    
+    return stripped
+
+
+def repair_table_block(block: TableBlock, stats: CleaningStats) -> list[str]:
+    """Repair a table block: merge continuations, fix separators, normalize pipes"""
+    # Step 1: Merge continuation lines
+    merged = merge_continuation_lines(block.lines, stats)
+    
+    # Step 2: Fix each row
+    repaired: list[str] = []
+    for row in merged:
+        if '|' in row:
+            # Fix separator row
+            row = fix_separator_row(row, block.column_count, stats)
+            # Normalize pipes
+            row = normalize_table_row(row)
+        repaired.append(row)
+    
+    stats.tables_repaired += 1
+    return repaired
+
+
+def repair_all_tables(content: str, stats: CleaningStats) -> str:
+    """Repair all tables in content"""
+    blocks = detect_table_blocks(content)
+    
+    if not blocks:
+        return content
+    
+    lines = content.split('\n')
+    
+    # Process blocks in reverse order to maintain line indices
+    for block in reversed(blocks):
+        repaired_lines = repair_table_block(block, stats)
+        lines[block.start_line:block.end_line + 1] = repaired_lines
+    
+    return '\n'.join(lines)
+
+
+# =============================================================================
+# STRUCTURE NORMALIZATION
+# =============================================================================
+
+def is_junk_separator(line: str) -> bool:
+    """Check if line is a junk separator (------ or ====== without value)"""
+    stripped = line.strip()
+    if len(stripped) < 20:
+        return False
+    
+    # Line is mostly dashes, equals, or underscores
+    junk_chars = set('-=_~*')
+    if stripped and all(c in junk_chars or c.isspace() for c in stripped):
+        return True
+    
+    return False
+
+
+def normalize_headers(content: str, stats: CleaningStats) -> str:
+    """Ensure headers have blank line before them"""
+    lines = content.split('\n')
+    normalized: list[str] = []
+    
+    for line in lines:
+        # Check if line is a header
+        if re.match(r'^#{1,6}\s+', line.strip()):
+            # Add blank line before if needed
+            if normalized and normalized[-1].strip():
+                normalized.append('')
+                stats.headers_normalized += 1
+        
+        normalized.append(line)
+    
+    return '\n'.join(normalized)
+
+
+def normalize_bullets(content: str) -> str:
+    """Normalize bullets: '- +' → '-', ensure proper formatting"""
+    # Fix '- +' pattern
+    content = re.sub(r'^(\s*)- \+', r'\1-', content, flags=re.MULTILINE)
+    
+    # Ensure space after -
+    content = re.sub(r'^(\s*)-([^\s-])', r'\1- \2', content, flags=re.MULTILINE)
+    
+    return content
+
+
+def remove_junk_separators(content: str, stats: CleaningStats) -> str:
+    """Remove junk separator lines"""
+    lines = content.split('\n')
+    cleaned: list[str] = []
+    
+    for line in lines:
+        if is_junk_separator(line):
+            stats.junk_separators_removed += 1
+            continue
+        cleaned.append(line)
+    
+    return '\n'.join(cleaned)
+
+
+def clean_excessive_newlines(content: str) -> str:
+    """Remove excessive consecutive newlines (>3 → 2)"""
+    while '\n\n\n\n' in content:
+        content = content.replace('\n\n\n\n', '\n\n\n')
+    return content
+
+
+# =============================================================================
+# RECHUNKING FUNCTIONS
+# =============================================================================
+
+def find_section_boundaries(content: str) -> list[tuple[int, str, int]]:
+    """
+    Find section boundaries in content.
+    Returns: [(char_index, section_title, level), ...]
+    """
+    boundaries: list[tuple[int, str, int]] = []
+    
+    lines = content.split('\n')
+    char_pos = 0
+    
+    for line in lines:
+        stripped = line.strip()
+        level: int | None = None
+        title: str | None = None
+        
+        # Check Markdown headers: # to ######
+        match = re.match(r'^(#{1,6})\s+(.+)$', stripped)
+        if match:
+            level = len(match.group(1))
+            title = match.group(2)
+        
+        # Check numbered sections: 1. or 1.1 or 1.1.1
+        if level is None:
+            match = re.match(r'^(\d+(?:\.\d+)*\.?)\s+(.+)$', stripped)
+            if match:
+                level = match.group(1).count('.') + 1
+                title = f"{match.group(1)} {match.group(2)}"
+        
+        # Check Roman numerals
+        if level is None:
+            match = re.match(r'^(I{1,3}|IV|V|VI{0,3}|IX|X{0,3})\.\s+(.+)$', stripped, re.IGNORECASE)
+            if match:
+                level = 1
+                title = f"{match.group(1)}. {match.group(2)}"
+        
+        # Check Vietnamese section markers
+        if level is None:
+            match = re.match(r'^(CHƯƠNG|MỤC|PHẦN)\s+(.+)$', stripped, re.IGNORECASE)
+            if match:
+                level = 1
+                title = f"{match.group(1)} {match.group(2)}"
+        
+        if level is not None and title is not None:
+            boundaries.append((char_pos, title, level))
+        
+        char_pos += len(line) + 1  # +1 for newline
+    
+    return boundaries
+
+
+def find_table_ranges(content: str) -> list[tuple[int, int]]:
+    """Find character ranges of table blocks (for boundary protection)"""
+    ranges: list[tuple[int, int]] = []
+    blocks = detect_table_blocks(content)
+    
+    lines = content.split('\n')
+    char_positions: list[int] = []
+    pos = 0
+    for line in lines:
+        char_positions.append(pos)
+        pos += len(line) + 1
+    
+    for block in blocks:
+        if block.start_line < len(char_positions):
+            start_char = char_positions[block.start_line]
+            end_char = char_positions[min(block.end_line + 1, len(char_positions) - 1)]
+            ranges.append((start_char, end_char))
+    
+    return ranges
+
+
+def is_inside_table(char_pos: int, table_ranges: list[tuple[int, int]]) -> bool:
+    """Check if character position is inside a table block"""
+    for start, end in table_ranges:
+        if start <= char_pos <= end:
+            return True
+    return False
+
+
+def adjust_boundary_for_tables(
+    boundary_pos: int,
+    table_ranges: list[tuple[int, int]],
+    content_length: int
+) -> int:
+    """Adjust boundary position to not cut inside a table"""
+    for start, end in table_ranges:
+        if start < boundary_pos < end:
+            # Boundary is inside table - move to after table
+            return min(end + 1, content_length)
+    return boundary_pos
+
+
+def rechunk_by_structure(
+    nodes: list[dict[str, Any]],
+    target_chars: int = 8000,
+    min_chars: int = 2000,
+    overlap_chars: int = 200,
+    stats: CleaningStats | None = None
+) -> list[dict[str, Any]]:
+    """
+    Rechunk nodes by document structure.
+    
+    - Groups by source document
+    - Chunks at section boundaries
+    - Never cuts inside tables
+    - Maintains metadata
+    """
+    if not nodes:
+        return []
+    
+    # Group nodes by source
+    by_source: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for node in nodes:
+        source = node.get('source', 'unknown')
+        by_source[source].append(node)
+    
+    output_chunks: list[dict[str, Any]] = []
+    
+    for source, source_nodes in by_source.items():
+        # Sort by page then chunk_id
+        source_nodes.sort(key=lambda n: (n.get('page', 0), n.get('chunk_id', '')))
+        
+        # Merge all content with page markers
+        merged_content = ''
+        page_ranges: list[int] = []
+        
+        for node in source_nodes:
+            page = node.get('page', 0)
+            content = node.get('content', '')
+            page_ranges.append(page)
+            
+            if merged_content:
+                merged_content += '\n\n'
+            merged_content += content
+        
+        if not merged_content.strip():
+            continue
+        
+        # Find section boundaries and table ranges
+        boundaries = find_section_boundaries(merged_content)
+        table_ranges = find_table_ranges(merged_content)
+        
+        # Create chunks
+        doc_chunks: list[dict[str, Any]] = []
+        current_start = 0
+        chunk_idx = 0
+        
+        content_length = len(merged_content)
+        
+        while current_start < content_length:
+            # Find target end position
+            target_end = min(current_start + target_chars, content_length)
+            
+            # Look for a good boundary near target
+            best_boundary = target_end
+            
+            # Check section boundaries
+            for pos, _title, _level in boundaries:
+                if current_start + min_chars <= pos <= target_end:
+                    # Keep the one closest to target
+                    if abs(pos - target_end) < abs(best_boundary - target_end):
+                        best_boundary = pos
+            
+            # Adjust for tables
+            best_boundary = adjust_boundary_for_tables(best_boundary, table_ranges, content_length)
+            
+            # Ensure we make progress
+            if best_boundary <= current_start:
+                best_boundary = min(current_start + target_chars, content_length)
+            
+            # Extract chunk content
+            chunk_content = merged_content[current_start:best_boundary].strip()
+            
+            if chunk_content:
+                # Determine page range for this chunk
+                chunk_page_start = page_ranges[0] if page_ranges else 1
+                chunk_page_end = page_ranges[-1] if page_ranges else 1
+                
+                # Build section path from boundaries
+                section_path = 'Document'
+                for pos, title, _level in boundaries:
+                    if pos <= current_start:
+                        section_path = title[:50]  # Truncate long titles
+                
+                # Create new chunk
+                chunk_id = f"{Path(source).stem}_chunk_{chunk_idx:04d}"
+                new_chunk: dict[str, Any] = {
+                    'source': source,
+                    'page': chunk_page_start,
+                    'page_start': chunk_page_start,
+                    'page_end': chunk_page_end,
+                    'chunk_id': chunk_id,
+                    'section_path': section_path,
+                    'tags': source_nodes[0].get('tags', []) if source_nodes else [],
+                    'content': chunk_content,
+                    'metadata': {
+                        'char_count': len(chunk_content),
+                        'token_count': len(chunk_content.split()),
+                        'has_table': '|' in chunk_content and chunk_content.count('|') >= 4,
+                    }
+                }
+                
+                doc_chunks.append(new_chunk)
+                chunk_idx += 1
+            
+            current_start = best_boundary
+        
+        output_chunks.extend(doc_chunks)
+        
+        if stats:
+            stats.output_chunks += len(doc_chunks)
+    
+    return output_chunks
+
+
+# =============================================================================
+# MAIN PIPELINE
+# =============================================================================
+
+def clean_content(content: str, stats: CleaningStats) -> str:
+    """Apply all cleaning operations to content"""
+    # Step 1: Remove image links
+    content = remove_image_links(content, stats)
+    
+    # Step 2: Remove footer lines
+    content = remove_footer_lines(content, stats)
+    
+    # Step 3: Remove spam lines
+    content = remove_spam_lines(content, stats)
+    
+    # Step 4: Remove gibberish lines
+    content = remove_gibberish_lines(content, stats)
+    
+    # Step 5: Repair tables
+    content = repair_all_tables(content, stats)
+    
+    # Step 6: Normalize headers
+    content = normalize_headers(content, stats)
+    
+    # Step 7: Normalize bullets
+    content = normalize_bullets(content)
+    
+    # Step 8: Remove junk separators
+    content = remove_junk_separators(content, stats)
+    
+    # Step 9: Clean excessive newlines
+    content = clean_excessive_newlines(content)
+    
+    return content
+
+
+def process_node(node: dict[str, Any], stats: CleaningStats) -> dict[str, Any] | None:
+    """Process a single node: clean content"""
+    content = node.get('content', '')
+    
+    if not content.strip():
+        return None
+    
+    cleaned_content = clean_content(content, stats)
+    
+    if not cleaned_content.strip():
+        return None
+    
+    # Create new node with cleaned content
+    cleaned_node = node.copy()
+    cleaned_node['content'] = cleaned_content
+    
+    return cleaned_node
+
+
+def load_nodes_from_directory(input_dir: Path) -> list[dict[str, Any]]:
+    """Load all JSON nodes from a directory"""
+    nodes: list[dict[str, Any]] = []
+    
+    json_files = sorted(input_dir.glob('*.json'))
+    
+    for json_file in json_files:
+        # Skip non-node files
+        if 'temp_' in json_file.name or json_file.name.startswith('.'):
+            continue
+        
+        try:
+            with open(json_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                
+                if isinstance(data, list):
+                    nodes.extend(cast(list[dict[str, Any]], data))
+                elif isinstance(data, dict):
+                    nodes.append(cast(dict[str, Any], data))
+        except Exception as e:
+            logger.warning(f"Failed to load {json_file}: {e}")
+    
+    return nodes
+
+
+def save_nodes(nodes: list[dict[str, Any]], output_dir: Path) -> None:
+    """Save nodes to output directory (one file per node)"""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    for i, node in enumerate(nodes):
+        chunk_id = node.get('chunk_id', f'node_{i:04d}')
+        output_file = output_dir / f"{chunk_id}.json"
+        
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(node, f, ensure_ascii=False, indent=2)
+
+
+def run_pipeline(
+    input_dir: Path,
+    output_dir: Path,
+    do_rechunk: bool = True,
+    target_chars: int = 8000,
+    dry_run: bool = False
+) -> CleaningStats:
+    """Run the full cleaning and rechunking pipeline"""
+    stats = CleaningStats()
+    
+    # Load nodes
+    logger.info(f"Loading nodes from {input_dir}")
+    nodes = load_nodes_from_directory(input_dir)
+    stats.total_files = len(list(input_dir.glob('*.json')))
+    stats.total_nodes = len(nodes)
+    
+    if not nodes:
+        logger.warning("No nodes found to process")
+        return stats
+    
+    logger.info(f"Loaded {len(nodes)} nodes from {stats.total_files} files")
+    
+    # Clean each node
+    logger.info("Cleaning nodes...")
+    cleaned_nodes: list[dict[str, Any]] = []
+    
+    for node in nodes:
+        cleaned = process_node(node, stats)
+        if cleaned:
+            cleaned_nodes.append(cleaned)
+    
+    logger.info(f"Cleaned {len(cleaned_nodes)} nodes (dropped {len(nodes) - len(cleaned_nodes)})")
+    
+    # Rechunk if enabled
+    if do_rechunk:
+        logger.info("Rechunking by structure...")
+        output_nodes = rechunk_by_structure(cleaned_nodes, target_chars=target_chars, stats=stats)
+    else:
+        output_nodes = cleaned_nodes
+        stats.output_chunks = len(cleaned_nodes)
+    
+    stats.output_nodes = len(output_nodes)
+    
+    # Save output
+    if not dry_run:
+        logger.info(f"Saving {len(output_nodes)} nodes to {output_dir}")
+        save_nodes(output_nodes, output_dir)
+    else:
+        logger.info(f"[DRY RUN] Would save {len(output_nodes)} nodes to {output_dir}")
+    
+    return stats
+
+
+def print_stats(stats: CleaningStats) -> None:
+    """Print cleaning statistics"""
+    print("\n" + "=" * 60)
+    print("CLEANING AND RECHUNKING SUMMARY")
+    print("=" * 60)
+    print(f"Input files:              {stats.total_files}")
+    print(f"Input nodes:              {stats.total_nodes}")
+    print()
+    print("Cleaning Operations:")
+    print(f"  Image links removed:    {stats.image_links_removed}")
+    print(f"  Footer lines removed:   {stats.footer_lines_removed}")
+    print(f"  Spam lines removed:     {stats.spam_lines_removed}")
+    print(f"  Gibberish removed:      {stats.gibberish_lines_removed}")
+    print(f"  Tables repaired:        {stats.tables_repaired}")
+    print(f"  Continuations merged:   {stats.continuation_lines_merged}")
+    print(f"  Separators fixed:       {stats.separator_rows_fixed}")
+    print(f"  Headers normalized:     {stats.headers_normalized}")
+    print(f"  Junk separators del:    {stats.junk_separators_removed}")
+    print()
+    print(f"Output nodes:             {stats.output_nodes}")
+    print(f"Output chunks:            {stats.output_chunks}")
+    print("=" * 60)
+
+
+# =============================================================================
+# CLI INTERFACE
+# =============================================================================
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Clean and rechunk medical PDF nodes for RAG/KG",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    python scripts/clean_and_rechunk.py data/processed/ --output cleaned_nodes/
+    python scripts/clean_and_rechunk.py data/processed/ --no-rechunk
+    python scripts/clean_and_rechunk.py data/processed/ --target-chars 6000
+    python scripts/clean_and_rechunk.py data/processed/ --dry-run
+        """
+    )
+    
+    parser.add_argument(
+        'input_dir',
+        type=Path,
+        help='Input directory containing JSON node files'
+    )
+    
+    parser.add_argument(
+        '--output', '-o',
+        type=Path,
+        default=Path('cleaned_nodes'),
+        help='Output directory (default: cleaned_nodes/)'
+    )
+    
+    parser.add_argument(
+        '--target-chars',
+        type=int,
+        default=8000,
+        help='Target characters per chunk (default: 8000)'
+    )
+    
+    parser.add_argument(
+        '--no-rechunk',
+        action='store_true',
+        help='Skip rechunking (only clean)'
+    )
+    
+    parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Preview without writing files'
+    )
+    
+    args = parser.parse_args()
+    
+    if not args.input_dir.exists():
+        print(f"Error: Input directory not found: {args.input_dir}")
+        return 1
+    
+    stats = run_pipeline(
+        input_dir=args.input_dir,
+        output_dir=args.output,
+        do_rechunk=not args.no_rechunk,
+        target_chars=args.target_chars,
+        dry_run=args.dry_run
+    )
+    
+    print_stats(stats)
+    
+    return 0
+
+
+if __name__ == '__main__':
+    exit(main())

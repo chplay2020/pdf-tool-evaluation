@@ -8,13 +8,13 @@ for reviewing content quality before AI training.
 
 Output formats:
 1. Plain text - Just the content
-2. Detailed text - Content with metadata (tags, domain, section)
-3. Training format - Optimized for AI training datasets
+2. Markdown - Nicely formatted for review
+3. JSONL - JSON Lines format for ML pipelines
 
 Usage:
     python export_text.py <json_file>
-    python export_text.py <json_file> --format detailed
-    python export_text.py <json_file> --format training
+    python export_text.py <json_file> --format markdown
+    python export_text.py <json_file> --format jsonl
     python export_text.py --all  # Export all JSON files in processed/
 
 Author: Research Assistant
@@ -331,8 +331,6 @@ def export_file(json_path: Path, format_type: str = "plain") -> None:
     # Determine output filename
     format_suffix = {
         "plain": "_plain.txt",
-        "detailed": "_detailed.txt",
-        "training": "_training.txt",
         "markdown": "_review.md",
         "jsonl": "_training.jsonl"
     }
@@ -343,10 +341,6 @@ def export_file(json_path: Path, format_type: str = "plain") -> None:
     # Export based on format
     if format_type == "plain":
         export_plain_text(data, output_path)
-    elif format_type == "detailed":
-        export_detailed_text(data, output_path)
-    elif format_type == "training":
-        export_training_format(data, output_path)
     elif format_type == "markdown":
         export_markdown(data, output_path)
     elif format_type == "jsonl":
@@ -384,17 +378,13 @@ def main():
         epilog="""
 Examples:
   python export_text.py test_simple_2_lightrag.json
-  python export_text.py test_simple_2_lightrag.json --format detailed
-  python export_text.py test_simple_2_lightrag.json --format training
   python export_text.py test_simple_2_lightrag.json --format markdown
   python export_text.py test_simple_2_lightrag.json --format jsonl
   python export_text.py --all
-  python export_text.py --all --format detailed
+  python export_text.py --all --format markdown
 
 Formats:
   plain     - Simple text, just content (default)
-  detailed  - Content with all metadata, tags, domain
-  training  - Optimized for AI training datasets
   markdown  - Nicely formatted Markdown for review
   jsonl     - JSON Lines format for ML pipelines
         """
@@ -408,7 +398,7 @@ Formats:
     
     parser.add_argument(
         "--format", "-f",
-        choices=["plain", "detailed", "training", "markdown", "jsonl"],
+        choices=["plain", "markdown", "jsonl"],
         default="plain",
         help="Output format (default: plain)"
     )

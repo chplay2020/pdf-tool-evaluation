@@ -4,11 +4,13 @@ Cleaning V1 Module - Initial Content Cleaning
 ==============================================
 
 This module performs the first stage of cleaning on Marker JSON output:
-- Remove repeated headers/footers
+- Remove footer/header/system logs (kcb_ patterns with date/time)
+- Remove markdown image links (local images)
+- Remove long separator lines (>=50 dashes/em-dashes)
+- Remove gibberish lines with extreme token/bigram repetition
 - Normalize whitespace
 - Preserve headings and lists
 - Remove page artifacts
-- Clean basic OCR artifacts
 
 Input: Marker JSON with markdown content
 Output: Dictionary with cleaned_content field
@@ -19,7 +21,7 @@ Date: January 2026
 
 import re
 from typing import Any
-from collections import Counter
+from collections import Counter, defaultdict
 
 
 def detect_repeated_lines(lines: list[str], threshold: int = 2) -> set[str]:
@@ -29,7 +31,7 @@ def detect_repeated_lines(lines: list[str], threshold: int = 2) -> set[str]:
     normalized = [line.strip().lower() for line in lines if line.strip()]
     counter = Counter(normalized)
 
-    repeated = set()
+    repeated: set[str] = set()
     for line, count in counter.items():
         if count >= threshold and len(line) >= 50:
             repeated.add(line)
@@ -37,12 +39,148 @@ def detect_repeated_lines(lines: list[str], threshold: int = 2) -> set[str]:
     return repeated
 
 
+def remove_footer_header_logs(text: str) -> str:
+    """
+    Remove footer/header/system log lines.
+    Pattern: kcb_...dd/mm/yyyy...hh : mm : ss (with optional spaces around colons/slashes)
+    """
+    lines = text.split('\n')
+    cleaned_lines: list[str] = []
+
+    footer_patterns = [
+        # kcb_ with date (spaces allowed around separators)
+        r'kcb[_.].*\d{1,2}\s*/\s*\d{1,2}\s*/\s*\d{4}',
+        # kcb_ with time (spaces allowed around colons)
+        r'kcb[_.].*\d{1,2}\s*:\s*\d{2}\s*:\s*\d{2}',
+        # generic kcb line with 10+ chars junk
+        r'^[*\s]*kcb[_.][^\n]{10,}$',
+        r'<PARSED TEXT',
+        r'\[Page\s*\d+\]',
+        r'---Page Break---',
+    ]
+
+    for line in lines:
+        is_footer = False
+        for pat in footer_patterns:
+            if re.search(pat, line, re.IGNORECASE):
+                is_footer = True
+                break
+        if not is_footer:
+            cleaned_lines.append(line)
+
+    return '\n'.join(cleaned_lines)
+
+
+def remove_image_links(text: str) -> str:
+    """
+    Remove local image links like ![](*.jpeg), including '![](...  . jpeg)' with space.
+    """
+    # Pattern: ![...](...) where path ends with image extension (with optional space before ext)
+    pattern = r'!\[[^\]]*\]\([^)]*\.\s*(?:jpe?g|png|gif|bmp)\s*\)'
+    text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+    # Clean up leftover blank lines
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text
+
+
+def remove_long_separators(text: str) -> str:
+    """
+    Remove separator lines of dashes/em-dashes >= 50 chars.
+    """
+    lines = text.split('\n')
+    cleaned: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        # Match 50+ of dash/em-dash/underscore/equals/tilde
+        if re.match(r'^[-—_=~]{50,}$', stripped):
+            continue
+        cleaned.append(line)
+    return '\n'.join(cleaned)
+
+
+def remove_gibberish_lines(text: str) -> str:
+    """
+    Remove gibberish lines with extreme token/bigram repetition.
+    
+    Rules:
+    - Single token repeated >= 30 times → drop
+    - Bigram (e.g. '200 A') repeated >= 20 times → drop
+    - Only 1-3 unique tokens but 10+ total → drop
+    - Long lines with low valid-char ratio → drop
+    """
+    lines = text.split('\n')
+    cleaned_lines: list[str] = []
+
+    valid_pattern = re.compile(
+        r'[a-zA-ZÀ-ỹ0-9\s\.\,\;\:\!\?\-\(\)\[\]\{\}\|'
+        r'\+\=\*\/\#\@\%\&\"\'\`\~\<\>]'
+    )
+
+    gibberish_exact = [
+        re.compile(r'deo da la la companya', re.IGNORECASE),
+        re.compile(r'([^\s])\1{10,}'),  # same char repeated 10+ times
+    ]
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            cleaned_lines.append(line)
+            continue
+
+        tokens = stripped.split()
+        
+        # Rule for short lines - skip extensive checking
+        if len(tokens) < 4:
+            cleaned_lines.append(line)
+            continue
+
+        # Rule 1: single token repeated >= 30 times
+        token_counts: dict[str, int] = defaultdict(int)
+        for t in tokens:
+            token_counts[t] += 1
+        if max(token_counts.values()) >= 30:
+            continue
+
+        # Rule 2: bigram repeated >= 20 times
+        if len(tokens) >= 6:
+            bigram_counts: dict[str, int] = defaultdict(int)
+            for i in range(len(tokens) - 1):
+                bg = f"{tokens[i]} {tokens[i+1]}"
+                bigram_counts[bg] += 1
+            if bigram_counts and max(bigram_counts.values()) >= 20:
+                continue
+
+        # Rule 3: very few unique tokens but many total
+        if len(set(tokens)) <= 3 and len(tokens) > 10:
+            continue
+
+        # Rule 4: Low valid-char ratio on long lines
+        if len(stripped) > 120:
+            valid_chars = len(valid_pattern.findall(stripped))
+            ratio = valid_chars / len(stripped) if stripped else 1.0
+            if ratio < 0.6:
+                continue
+
+            # Exact gibberish patterns
+            is_gib = False
+            for pat in gibberish_exact:
+                if pat.search(stripped):
+                    is_gib = True
+                    break
+            if is_gib:
+                continue
+
+        cleaned_lines.append(line)
+
+    return '\n'.join(cleaned_lines)
+
+
 def remove_page_artifacts(text: str) -> str:
     """
     Remove common page artifacts like page numbers, running headers.
     """
     lines = text.split('\n')
-    cleaned_lines = []
+    cleaned_lines: list[str] = []
 
     for line in lines:
         stripped = line.strip()
@@ -55,8 +193,8 @@ def remove_page_artifacts(text: str) -> str:
         if re.match(r'^(Page|Trang|p\.?|tr\.?)\s*\d+', stripped, re.IGNORECASE):
             continue
 
-        # Divider lines
-        if re.match(r'^[\-_=~]{3,}$', stripped):
+        # Divider lines (short ones - long ones handled by remove_long_separators)
+        if re.match(r'^[\-_=~]{3,49}$', stripped):
             continue
 
         cleaned_lines.append(line)
@@ -80,7 +218,7 @@ def preserve_markdown_structure(text: str) -> str:
     Ensure markdown structure (headings, lists) is preserved.
     """
     lines = text.split('\n')
-    cleaned_lines = []
+    cleaned_lines: list[str] = []
 
     for line in lines:
         # Headings
@@ -121,7 +259,7 @@ def remove_repeated_headers_footers(text: str) -> str:
     if not repeated:
         return text
 
-    cleaned_lines = []
+    cleaned_lines: list[str] = []
     for line in lines:
         norm = line.strip().lower()
         if norm not in repeated or line.strip().startswith('#'):
@@ -135,21 +273,16 @@ def clean_ocr_artifacts(text: str) -> str:
     Clean common OCR artifacts from the text.
     SAFE version: no unpacking error.
     """
-    replacements = [
+    replacements: list[tuple[str, str, int]] = [
         # Double spaces after punctuation
-        (r'([.!?])\s{2,}', r'\1 '),
+        (r'([.!?])\s{2,}', r'\1 ', 0),
 
         # Space before punctuation
-        (r'\s+([.!?,;:])', r'\1'),
+        (r'\s+([.!?,;:])', r'\1', 0),
     ]
 
-    for item in replacements:
-        if len(item) == 2:
-            pattern, replacement = item
-            text = re.sub(pattern, replacement, text)
-        else:
-            pattern, replacement, flags = item
-            text = re.sub(pattern, replacement, text, flags=flags)
+    for pattern, replacement, flags in replacements:
+        text = re.sub(pattern, replacement, text, flags=flags)
 
     return text
 
@@ -157,12 +290,21 @@ def clean_ocr_artifacts(text: str) -> str:
 def clean_marker_output(marker_json: dict[str, Any]) -> dict[str, Any]:
     """
     Main entry point: clean Marker JSON and add cleaned_content.
+    
+    Pipeline: footer/header logs -> image links -> long separators -> 
+              gibberish -> page artifacts -> repeated headers/footers ->
+              OCR artifacts -> markdown structure -> whitespace
     """
     if "content" not in marker_json:
         raise ValueError("Input JSON must contain 'content' field")
 
     content = marker_json["content"]
 
+    # Primary cleaning - remove artifacts
+    content = remove_footer_header_logs(content)
+    content = remove_image_links(content)
+    content = remove_long_separators(content)
+    content = remove_gibberish_lines(content)
     content = remove_page_artifacts(content)
     content = remove_repeated_headers_footers(content)
     content = clean_ocr_artifacts(content)
@@ -189,6 +331,10 @@ This is  some   text .
 - Item 1
 * Item 2
 1) Item 3
+
+kcb_user_12/01/2025 10 : 30 : 45
+
+![](image. jpeg)
 
 Page 2
 """

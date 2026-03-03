@@ -135,7 +135,30 @@ File Descriptions:
 """
 
 
-def run_marker_conversion_to_json(input_pdf: str, output_json: str, device: str = "cpu") -> dict[str, Any]:
+def setup_gpu_optimization(env: dict) -> None:
+    """
+    Thiết lập environment variables để tối ưu GPU.
+    
+    Args:
+        env: Environment dictionary (os.environ.copy())
+    """
+    # CUDA optimization flags
+    env["CUDA_LAUNCH_BLOCKING"] = "0"  # Async kernel launches (faster)
+    env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"  # Consistent GPU ordering
+    
+    # Disable unnecessary warnings
+    env["TF_CPP_MIN_LOG_LEVEL"] = "2"  # TensorFlow warnings
+    
+    print("Note: GPU optimization enabled (CUDA async)")
+
+
+def run_marker_conversion_to_json(
+    input_pdf: str,
+    output_json: str,
+    device: str = "cpu",
+    timeout: int = 1800,
+    batch_size: int = 0
+) -> dict[str, Any]:
     """
     Run Marker conversion and save result as JSON with text content.
     
@@ -143,6 +166,9 @@ def run_marker_conversion_to_json(input_pdf: str, output_json: str, device: str 
         input_pdf: Path to the input PDF file
         output_json: Path to save the JSON output
         device: Device to use for processing ("cpu" or "gpu"). Default: "cpu"
+        timeout: Timeout in seconds for conversion (default: 1800 = 30 min)
+        batch_size: Batch size for GPU processing (0 = auto). Increase for faster GPU processing
+                   but requires more VRAM. Typical: 16-32 for 8GB GPU, 64+ for 16GB+.
         
     Returns:
         Dictionary containing conversion statistics
@@ -173,12 +199,20 @@ def run_marker_conversion_to_json(input_pdf: str, output_json: str, device: str 
     # Create processed directory if not exists
     os.makedirs(os.path.dirname(output_json), exist_ok=True)
     
-    # Build the command
+    # Build the command with GPU optimization
     cmd = [
         "marker_single",
         input_pdf,
         "--output_dir", temp_output_dir
     ]
+    
+    # GPU-specific optimizations
+    if device == "gpu":
+        # Map generic batch size to supported marker options
+        effective_batch = batch_size if batch_size > 0 else 16
+        cmd.extend(["--equation_batch_size", str(effective_batch)])
+        cmd.extend(["--layout_batch_size", str(effective_batch)])
+        cmd.extend(["--table_rec_batch_size", str(effective_batch)])
     
     print(f"Running command: {' '.join(cmd)}")
     print("-" * 50)
@@ -195,10 +229,11 @@ def run_marker_conversion_to_json(input_pdf: str, output_json: str, device: str 
             env["CUDA_VISIBLE_DEVICES"] = ""
             print("Note: Running on CPU (CUDA disabled)")
         else:  # device == "gpu"
-            # Enable GPU - let system use available CUDA devices
+            # Enable GPU with optimizations
             if "CUDA_VISIBLE_DEVICES" in env:
                 del env["CUDA_VISIBLE_DEVICES"]
-            print("Note: Running on GPU (CUDA enabled)")
+            setup_gpu_optimization(env)
+            print("Optimizations: Async CUDA, GPU batch processing")
         
         print("-" * 50)
         
@@ -208,7 +243,7 @@ def run_marker_conversion_to_json(input_pdf: str, output_json: str, device: str 
             stdout=sys.stdout,    # stream trực tiếp
             stderr=sys.stderr,
             text=True,
-            timeout=600,  # 10-minute timeout
+            timeout=timeout if timeout > 0 else None,  # 0 = unlimited
             env=env
         )
         
@@ -253,7 +288,7 @@ def run_marker_conversion_to_json(input_pdf: str, output_json: str, device: str 
             print(f"Return code: {result.returncode}")
             
     except subprocess.TimeoutExpired:
-        stats["error"] = "Conversion timed out after 600 seconds"
+        stats["error"] = f"Conversion timed out after {timeout} seconds"
         print(stats["error"])
     except FileNotFoundError:
         stats["error"] = "Marker not installed. Run: pip install marker-pdf"

@@ -1,0 +1,1 @@
+{"doc_id": "test-22", "total_chunks": 9, "tables_removed_count": 5, "high_risk_table_removed_count": 2, "duplicates_found": 0, "noise_removed_count": 0, "flagged_chunks": [{"chunk_id": "test-22_node_0000", "flag": "high_risk_table_removed"}, {"chunk_id": "test-22_node_0008", "flag": "high_risk_table_removed"}]}

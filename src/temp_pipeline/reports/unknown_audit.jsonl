@@ -1,0 +1,1 @@
+{"doc_id": "unknown", "total_chunks": 7, "tables_removed_count": 2, "high_risk_table_removed_count": 1, "duplicates_found": 0, "noise_removed_count": 0, "flagged_chunks": [{"chunk_id": "unknown_node_0006", "flag": "high_risk_table_removed"}]}

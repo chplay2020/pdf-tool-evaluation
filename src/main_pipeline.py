@@ -41,7 +41,10 @@ from pipeline.final_cleaning import final_clean_content
 from pipeline.chunking import chunk_to_nodes
 from pipeline.audit_nodes import audit_and_merge_nodes
 from pipeline.auto_tagging import add_tags_to_nodes
-from export_text import export_plain_text, export_detailed_text, export_training_format, EXPORT_DIR
+from pipeline.export_standard import export_standard_json_files, get_pdf_page_count
+from export_text import export_plain_text, EXPORT_DIR
+from tools.clean_and_repair_nodes import CleaningPipeline
+from tools.rechunk_by_structure import RechunkPipeline
 
 
 # Configure logging
@@ -57,6 +60,7 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).parent
 RAW_DIR = BASE_DIR / "data" / "raw"
 PROCESSED_DIR = BASE_DIR / "data" / "processed"
+STANDARD_DIR = PROCESSED_DIR / "standard"
 TEMP_DIR = BASE_DIR / "temp_pipeline"
 
 
@@ -64,6 +68,7 @@ def ensure_directories() -> None:
     """Ensure all required directories exist."""
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    STANDARD_DIR.mkdir(parents=True, exist_ok=True)
     TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -94,13 +99,15 @@ def find_pdf_file(pdf_name: str) -> Path | None:
     return None
 
 
-def run_marker_step(pdf_path: Path, device: str = "cpu") -> dict[str, Any]:
+def run_marker_step(pdf_path: Path, device: str = "cpu", timeout: int = 0, batch_size: int = 0) -> dict[str, Any]:
     """
     Run Marker conversion step.
     
     Args:
         pdf_path: Path to input PDF
         device: Device to use ("cpu" or "gpu")
+        timeout: Timeout in seconds for conversion (default: 1800)
+        batch_size: Batch size for GPU (0 = auto, 16-32 for 8GB, 64+ for 16GB+)
         
     Returns:
         Marker JSON output
@@ -110,11 +117,13 @@ def run_marker_step(pdf_path: Path, device: str = "cpu") -> dict[str, Any]:
     """
     logger.info(f"Step 1: Running Marker conversion on {pdf_path.name}")
     logger.info(f"  Device: {device.upper()}")
+    if device == "gpu" and batch_size > 0:
+        logger.info(f"  GPU Batch Size: {batch_size}")
     
     # Output to temp directory
     temp_json = TEMP_DIR / f"{pdf_path.stem}_marker.json"
     
-    stats = run_marker_conversion_to_json(str(pdf_path), str(temp_json), device=device)
+    stats = run_marker_conversion_to_json(str(pdf_path), str(temp_json), device=device, timeout=timeout, batch_size=batch_size)
     
     if not stats.get("success"):
         raise RuntimeError(f"Marker conversion failed: {stats.get('error', 'Unknown error')}")
@@ -196,6 +205,172 @@ def run_chunking_step(
     logger.info(f"  ✓ Created {stats.get('total_nodes', 0)} nodes (avg {stats.get('avg_tokens', 0)} tokens)")
     
     return result
+
+
+def run_clean_and_repair_nodes_step(
+    data: dict[str, Any]
+) -> dict[str, Any]:
+    """
+    Run node cleaning and repair step (removes noise, fixes tables).
+    
+    Args:
+        data: Data with nodes list
+        
+    Returns:
+        Data with cleaned nodes
+    """
+    logger.info("Step 5: Cleaning and repairing nodes (noise removal, table repair)")
+    
+    nodes = data.get("nodes", [])
+    if not nodes:
+        logger.warning("  No nodes to clean")
+        return data
+    
+    # Create temporary cleaned nodes directory
+    temp_clean_dir = PROCESSED_DIR / "temp_cleaned"
+    temp_clean_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Write nodes to temp directory
+    for i, node in enumerate(nodes):
+        node_file = temp_clean_dir / f"node_{i:04d}.json"
+        with open(node_file, "w", encoding="utf-8") as f:
+            json.dump(node, f, ensure_ascii=False, indent=2)
+    
+    # Run cleaning pipeline
+    cleaning_pipeline = CleaningPipeline(
+        input_dir=str(temp_clean_dir),
+        output_dir=str(PROCESSED_DIR / "temp_cleaned_output"),
+        skip_admin=True,
+        skip_name_list=True,
+        skip_toc=False
+    )
+    cleaning_pipeline.run()
+    
+    # Load cleaned nodes
+    cleaned_nodes_dir = PROCESSED_DIR / "temp_cleaned_output" / "output_clean"
+    cleaned_nodes = []
+    
+    for node_file in sorted(cleaned_nodes_dir.glob("*.json")):
+        with open(node_file, "r", encoding="utf-8") as f:
+            nodes_in_file = json.load(f)
+            # clean_and_repair output is list of nodes
+            if isinstance(nodes_in_file, list):
+                cleaned_nodes.extend(nodes_in_file)
+            else:
+                cleaned_nodes.append(nodes_in_file)
+    
+    logger.info(f"  ✓ Cleaned {len(cleaned_nodes)} nodes")
+    
+    result = data.copy()
+    result["nodes"] = cleaned_nodes
+    
+    return result
+
+
+def run_rechunk_by_structure_step(
+    data: dict[str, Any]
+) -> dict[str, Any]:
+    """
+    Run structure-aware rechunking step (replaces fixed page-based chunking).
+    
+    Args:
+        data: Data with cleaned nodes
+        
+    Returns:
+        Data with rechunked semantic nodes
+    """
+    logger.info("Step 6: Rechunking by document structure (replaces fixed 6-page chunking)")
+    
+    nodes = data.get("nodes", [])
+    if not nodes:
+        logger.warning("  No nodes to rechunk")
+        return data
+    
+    # Create temporary nodes directory
+    temp_rechunk_input = PROCESSED_DIR / "temp_rechunk_input"
+    temp_rechunk_input.mkdir(parents=True, exist_ok=True)
+    
+    # Write nodes to temp directory
+    for i, node in enumerate(nodes):
+        node_file = temp_rechunk_input / f"node_{i:04d}.json"
+        with open(node_file, "w", encoding="utf-8") as f:
+            json.dump(node, f, ensure_ascii=False, indent=2)
+    
+    # Run rechunking pipeline
+    rechunk_pipeline = RechunkPipeline(
+        input_dir=str(temp_rechunk_input),
+        output_dir=str(PROCESSED_DIR / "temp_rechunked_output"),
+        target_chars=8000,
+        min_chars=2000
+    )
+    rechunk_pipeline.run()
+    
+    # Load rechunked nodes and convert to pipeline format
+    rechunked_nodes_dir = PROCESSED_DIR / "temp_rechunked_output" / "output_rechunk"
+    rechunked_nodes = []
+    
+    for node_file in sorted(rechunked_nodes_dir.glob("*.json")):
+        with open(node_file, "r", encoding="utf-8") as f:
+            nodes_list = json.load(f)
+            if isinstance(nodes_list, list):
+                for tool_node in nodes_list:
+                    # Convert tools format → pipeline format
+                    converted = _convert_tools_node_to_pipeline_format(tool_node)
+                    rechunked_nodes.append(converted)
+            else:
+                converted = _convert_tools_node_to_pipeline_format(nodes_list)
+                rechunked_nodes.append(converted)
+    
+    logger.info(f"  ✓ Rechunked into {len(rechunked_nodes)} semantic nodes (merged by structure, not fixed pages)")
+    
+    result = data.copy()
+    result["nodes"] = rechunked_nodes
+    result["rechunking_stats"] = {
+        "original_nodes": len(nodes),
+        "rechunked_nodes": len(rechunked_nodes),
+        "merge_ratio": len(nodes) / len(rechunked_nodes) if rechunked_nodes else 0
+    }
+    
+    return result
+
+
+def _convert_tools_node_to_pipeline_format(tool_node: dict[str, Any]) -> dict[str, Any]:
+    """
+    Convert tools format (clean_and_repair + rechunk output) to pipeline format.
+    
+    Converts:
+        Tools: {source, page_start, page_end, chunk_id, section_path, content, metadata_rechunk}
+        To: Pipeline format: {id, section, content, metadata, ...}
+    """
+    # Use chunk_id as id if available, fallback to source
+    node_id = tool_node.get("chunk_id") or tool_node.get("source") or "unknown"
+    
+    # Merge all metadata
+    metadata = {}
+    if "metadata_rechunk" in tool_node:
+        metadata.update(tool_node["metadata_rechunk"])
+    if "metadata_clean" in tool_node:
+        metadata.update(tool_node["metadata_clean"])
+    if "metadata" in tool_node:
+        metadata.update(tool_node["metadata"])
+    
+    # Build pipeline format
+    pipeline_node = {
+        "id": node_id,
+        "section": tool_node.get("section_path", ""),
+        "content": tool_node.get("content", ""),
+        "metadata": metadata,
+    }
+    
+    # Add optional fields if present
+    if "source" in tool_node:
+        pipeline_node["source"] = tool_node["source"]
+    if "page_start" in tool_node:
+        pipeline_node["page_start"] = tool_node["page_start"]
+    if "page_end" in tool_node:
+        pipeline_node["page_end"] = tool_node["page_end"]
+    
+    return pipeline_node
 
 
 def run_audit_step(
@@ -325,10 +500,23 @@ def run_full_pipeline(
     max_tokens: int = 400,
     duplicate_threshold: float = 0.85,
     save_intermediate: bool = False,
-    device: str = "cpu"
+    device: str = "cpu",
+    timeout: int = 0,
+    batch_size: int = 0,
+    auto_chunk_pages: int = 6
 ) -> dict[str, Any]:
     """
-    Run the complete preprocessing pipeline.
+    Run the complete preprocessing pipeline (with integrated tools).
+    
+    Pipeline steps:
+        1. Marker: PDF → Markdown
+        2. Cleaning V1: Initial content cleanup
+        3. Final cleaning: Vietnamese text normalization
+        4. Chunking: Text → basic nodes
+        5. ⭐ Clean & Repair: Remove noise, fix tables (integrated tool)
+        6. ⭐ Rechunk by Structure: Replace 6-page chunking with semantic chunks (integrated tool)
+        7. Audit: Deduplication and quality checks
+        8. Tagging: Auto-tagging based on content
     
     Args:
         pdf_name: Name of PDF file in data/raw/
@@ -337,6 +525,9 @@ def run_full_pipeline(
         duplicate_threshold: Similarity threshold for deduplication
         save_intermediate: Whether to save intermediate results
         device: Device to use for processing ("cpu" or "gpu")
+        timeout: Timeout in seconds for Marker conversion (default: 0 = unlimited)
+        batch_size: GPU batch size (0 = auto 16, increase for faster GPU: 32, 64, 128)
+        auto_chunk_pages: Auto split if PDF > this pages (0 = disable, default: 6)
         
     Returns:
         LightRAG-compatible output dictionary
@@ -347,21 +538,44 @@ def run_full_pipeline(
     """
     ensure_directories()
     
-    logger.info("=" * 60)
-    logger.info(f"Starting LightRAG preprocessing pipeline for: {pdf_name}")
-    logger.info(f"Device: {device.upper()}")
-    logger.info("=" * 60)
-    
     # Find PDF file
     pdf_path = find_pdf_file(pdf_name)
     if pdf_path is None:
         raise FileNotFoundError(f"PDF file not found: {pdf_name}")
     
+    # Check if auto-chunking is enabled and PDF is large enough
+    if auto_chunk_pages > 0:
+        total_pages = get_pdf_page_count(str(pdf_path))
+        if total_pages > auto_chunk_pages:
+            logger.info("=" * 60)
+            logger.info(f"PDF has {total_pages} pages > threshold ({auto_chunk_pages})")
+            logger.info("Switching to AUTO-CHUNK mode")
+            logger.info("=" * 60)
+            
+            # Import here to avoid circular dependency
+            from batch_process_chunks import process_pdf_chunks_internal
+            
+            return process_pdf_chunks_internal(
+                pdf_path=str(pdf_path),
+                device=device,
+                timeout=timeout,
+                batch_size=batch_size,
+                min_tokens=min_tokens,
+                max_tokens=max_tokens,
+                target_pages_per_chunk=auto_chunk_pages
+            )
+    
+    # Normal processing for small PDFs
     doc_id = pdf_path.stem
+    
+    logger.info("=" * 60)
+    logger.info(f"Starting LightRAG preprocessing pipeline for: {pdf_name}")
+    logger.info(f"Device: {device.upper()}")
+    logger.info("=" * 60)
     
     try:
         # Step 1: Marker conversion
-        marker_output = run_marker_step(pdf_path, device=device)
+        marker_output = run_marker_step(pdf_path, device=device, timeout=timeout, batch_size=batch_size)
         
         if save_intermediate:
             with open(TEMP_DIR / f"{doc_id}_01_marker.json", "w", encoding="utf-8") as f:
@@ -381,50 +595,75 @@ def run_full_pipeline(
             with open(TEMP_DIR / f"{doc_id}_03_final.json", "w", encoding="utf-8") as f:
                 json.dump(final_data, f, ensure_ascii=False, indent=2)
         
-        # Step 4: Chunking
+        # Step 4: Chunking (create basic nodes)
         chunked_data = run_chunking_step(final_data, min_tokens, max_tokens)
         
         if save_intermediate:
             with open(TEMP_DIR / f"{doc_id}_04_chunked.json", "w", encoding="utf-8") as f:
                 json.dump(chunked_data, f, ensure_ascii=False, indent=2)
         
-        # Step 5: Audit
-        audited_data = run_audit_step(chunked_data, duplicate_threshold, min_tokens)
+        # Step 5: Clean and Repair Nodes (integrated tool - remove noise, fix tables)
+        cleaned_data = run_clean_and_repair_nodes_step(chunked_data)
         
         if save_intermediate:
-            with open(TEMP_DIR / f"{doc_id}_05_audited.json", "w", encoding="utf-8") as f:
+            with open(TEMP_DIR / f"{doc_id}_05_cleaned.json", "w", encoding="utf-8") as f:
+                json.dump(cleaned_data, f, ensure_ascii=False, indent=2)
+        
+        # Step 6: Rechunk by Structure (integrated tool - replace 6-page chunking with semantic)
+        rechunked_data = run_rechunk_by_structure_step(cleaned_data)
+        
+        if save_intermediate:
+            with open(TEMP_DIR / f"{doc_id}_06_rechunked.json", "w", encoding="utf-8") as f:
+                json.dump(rechunked_data, f, ensure_ascii=False, indent=2)
+        
+        # Step 7: Audit
+        audited_data = run_audit_step(rechunked_data, duplicate_threshold, min_tokens)
+        
+        if save_intermediate:
+            with open(TEMP_DIR / f"{doc_id}_07_audited.json", "w", encoding="utf-8") as f:
                 json.dump(audited_data, f, ensure_ascii=False, indent=2)
         
-        # Step 6: Auto-tagging
+        # Step 8: Auto-tagging
         tagged_data = run_auto_tagging_step(audited_data, source_file=pdf_path.name)
         
         if save_intermediate:
-            with open(TEMP_DIR / f"{doc_id}_06_tagged.json", "w", encoding="utf-8") as f:
+            with open(TEMP_DIR / f"{doc_id}_08_tagged.json", "w", encoding="utf-8") as f:
                 json.dump(tagged_data, f, ensure_ascii=False, indent=2)
         
-        # Create final output
+        # Create final output (in-memory only)
         output = create_lightrag_output(tagged_data, doc_id)
         
-        # Save final output
-        output_path = PROCESSED_DIR / f"{doc_id}_lightrag.json"
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(output, f, ensure_ascii=False, indent=2)
-        
-        # Step 7: Export text files for review
-        logger.info("Step 7: Exporting text files for review")
+        # Step 9: Export text files for review
+        logger.info("Step 9: Exporting text file for review")
         EXPORT_DIR.mkdir(parents=True, exist_ok=True)
         
         export_plain_text(output, EXPORT_DIR / f"{doc_id}_plain.txt")
-        export_detailed_text(output, EXPORT_DIR / f"{doc_id}_detailed.txt")
-        export_training_format(output, EXPORT_DIR / f"{doc_id}_training.txt")
         
-        logger.info(f"  ✓ Exported 3 text files to {EXPORT_DIR}")
+        logger.info(f"  ✓ Exported text file to {EXPORT_DIR}")
+        
+        # Step 10: Export standard JSON (One Object per File)
+        logger.info("Step 10: Exporting standard JSON files (One Object per File)")
+        
+        total_pages = get_pdf_page_count(str(pdf_path))
+        standard_output_dir = PROCESSED_DIR
+        
+        standard_files = export_standard_json_files(
+            output,
+            standard_output_dir,
+            total_pages=total_pages,
+            pdf_path=str(pdf_path)
+        )
+        
+        logger.info(f"  ✓ Exported {len(standard_files)} standard JSON files to {standard_output_dir}")
         
         logger.info("=" * 60)
-        logger.info(f"✓ Pipeline completed successfully!")
-        logger.info(f"  JSON Output: {output_path}")
-        logger.info(f"  Text Files: {EXPORT_DIR}")
-        logger.info(f"  Nodes: {len(output['nodes'])}")
+        logger.info(f"✓ Full pipeline (with integrated tools) completed successfully!")
+        logger.info(f"  Standard JSON    : {standard_output_dir}/ ({len(standard_files)} files)")
+        logger.info(f"  Text Files       : {EXPORT_DIR}")
+        logger.info(f"  Final Nodes      : {len(output['nodes'])}")
+        logger.info(f"  ⭐ Features integrated:")
+        logger.info(f"     - Clean & Repair: Remove noise, fix tables")
+        logger.info(f"     - Rechunk by Structure: Replace 6-page chunking with semantic chunks")
         logger.info("=" * 60)
         
         return output
@@ -502,6 +741,27 @@ Examples:
     )
     
     parser.add_argument(
+        "--timeout",
+        type=int,
+        default=0,
+        help="Timeout in seconds for Marker conversion (default: 0 = unlimited)"
+    )
+    
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=0,
+        help="GPU batch size (0=auto 16). Increase for faster GPU: 32, 64, 128. Requires more VRAM. Only for --device gpu"
+    )
+    
+    parser.add_argument(
+        "--auto-chunk-pages",
+        type=int,
+        default=6,
+        help="Auto split PDF if > N pages (default: 6). Set 0 to disable auto-chunking"
+    )
+    
+    parser.add_argument(
         "--list",
         action="store_true",
         help="List available PDF files in data/raw/"
@@ -531,7 +791,10 @@ Examples:
             max_tokens=args.max_tokens,
             duplicate_threshold=args.duplicate_threshold,
             save_intermediate=args.save_intermediate,
-            device=args.device
+            device=args.device,
+            timeout=args.timeout,
+            batch_size=args.batch_size,
+            auto_chunk_pages=args.auto_chunk_pages
         )
         
         # Print summary

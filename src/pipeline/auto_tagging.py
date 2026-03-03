@@ -558,7 +558,7 @@ def extract_tags_from_content(content: str, min_keyword_matches: int = 1) -> lis
     sorted_tags = sorted(tag_scores.items(), key=lambda x: x[1], reverse=True)
     
     # Return only tag names
-    return [tag for tag, score in sorted_tags]
+    return [tag for tag, _ in sorted_tags]
 
 
 def extract_tags_from_section(section_heading: str) -> list[str]:
@@ -670,7 +670,7 @@ def auto_tag_content(
     # Sort by score and return top tags
     sorted_tags = sorted(all_tags.items(), key=lambda x: x[1], reverse=True)
     
-    return [tag for tag, score in sorted_tags[:max_tags]]
+    return [tag for tag, _ in sorted_tags[:max_tags]]
 
 
 def auto_tag_node(node: dict[str, Any], source_file: str = "") -> list[str]:
@@ -706,7 +706,7 @@ def add_tags_to_nodes(
     Returns:
         Nodes with tags and domain added to metadata
     """
-    tagged_nodes = []
+    tagged_nodes: list[dict[str, Any]] = []
     
     for node in nodes:
         # Create a copy to avoid modifying original

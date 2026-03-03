@@ -4,9 +4,11 @@ Chunking Module - Semantic Node Generation
 ==========================================
 
 This module converts final_content into semantic nodes for LightRAG:
-- Target node size: 150-400 tokens
+- Target node size: 150-400 tokens (configurable)
 - Split by heading and paragraph
 - Never split sentences
+- Table atomic: never cut inside table blocks
+- Respect table placeholders
 - Each node must be meaningful on its own
 
 Input: Dictionary with final_content field
@@ -17,9 +19,12 @@ Date: January 2026
 """
 
 import re
-import uuid
 from typing import Any
 from dataclasses import dataclass, field, asdict
+
+
+# Pattern for table placeholder
+TABLE_PLACEHOLDER_PATTERN = re.compile(r'\[TABLE_REMOVED:\s*[^\]]+\]')
 
 
 @dataclass
@@ -36,7 +41,7 @@ class Node:
     id: str
     content: str
     section: str = ""
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=lambda: {})
     
     def to_dict(self) -> dict[str, Any]:
         """Convert node to dictionary for JSON serialization."""
@@ -66,6 +71,67 @@ def estimate_tokens(text: str) -> int:
     # Vietnamese: roughly 4-5 chars per token on average
     # English: roughly 4 chars per token
     return max(1, len(text) // 4)
+
+
+def is_table_placeholder(line: str) -> bool:
+    """Check if a line is a table placeholder."""
+    return bool(TABLE_PLACEHOLDER_PATTERN.search(line))
+
+
+def is_table_line(line: str) -> bool:
+    """Check if a line is part of a markdown table (guard for residual tables)."""
+    stripped = line.strip()
+    return '|' in stripped and stripped.count('|') >= 2
+
+
+def detect_residual_table_ranges(text: str) -> list[tuple[int, int]]:
+    """
+    Detect any residual table blocks that weren't replaced by placeholders.
+    Returns list of (start_line, end_line) tuples.
+    """
+    lines = text.split('\n')
+    ranges: list[tuple[int, int]] = []
+    
+    in_table = False
+    table_start = 0
+    consecutive_no_pipe = 0
+    
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        has_pipe = is_table_line(line)
+        is_heading = stripped.startswith('#')
+        
+        if not in_table:
+            if has_pipe:
+                # Look at window to confirm table
+                window = lines[i:min(len(lines), i + 3)]
+                pipe_count = sum(1 for w in window if is_table_line(w))
+                if pipe_count >= 2:
+                    in_table = True
+                    table_start = i
+                    consecutive_no_pipe = 0
+        else:
+            if is_heading:
+                # End table
+                ranges.append((table_start, i - 1))
+                in_table = False
+            elif has_pipe:
+                consecutive_no_pipe = 0
+            elif stripped == '':
+                consecutive_no_pipe += 1
+                if consecutive_no_pipe >= 2:
+                    ranges.append((table_start, i - consecutive_no_pipe))
+                    in_table = False
+            else:
+                consecutive_no_pipe += 1
+                if consecutive_no_pipe >= 2:
+                    ranges.append((table_start, i - consecutive_no_pipe))
+                    in_table = False
+    
+    if in_table:
+        ranges.append((table_start, len(lines) - 1))
+    
+    return ranges
 
 
 def split_into_sentences(text: str) -> list[str]:
@@ -100,13 +166,13 @@ def extract_sections(content: str) -> list[dict[str, Any]]:
     Returns:
         List of sections with heading and content
     """
-    sections = []
+    sections: list[dict[str, Any]] = []
     
     # Split by headings (# ## ### etc.)
     heading_pattern = r'^(#{1,6})\s+(.+?)$'
     lines = content.split('\n')
     
-    current_section = {
+    current_section: dict[str, Any] = {
         "heading": "",
         "level": 0,
         "content_lines": []
@@ -146,7 +212,7 @@ def extract_sections(content: str) -> list[dict[str, Any]]:
 
 def split_into_paragraphs(text: str) -> list[str]:
     """
-    Split text into paragraphs.
+    Split text into paragraphs, keeping table placeholders as atomic units.
     
     Args:
         text: Input text
@@ -163,7 +229,22 @@ def split_into_paragraphs(text: str) -> list[str]:
     return paragraphs
 
 
-def create_node(content: str, section: str, doc_id: str, node_index: int, tags: list[str] = None) -> Node:
+def is_paragraph_table_content(paragraph: str) -> bool:
+    """
+    Check if a paragraph contains table placeholder or residual table content.
+    These should not be split.
+    """
+    # Check for placeholder
+    if is_table_placeholder(paragraph):
+        return True
+    
+    # Check for residual table lines
+    lines = paragraph.split('\n')
+    table_lines = sum(1 for l in lines if is_table_line(l))
+    return table_lines >= 2
+
+
+def create_node(content: str, section: str, doc_id: str, node_index: int, tags: list[str] | None = None) -> Node:
     """
     Create a new node with generated ID.
     
@@ -179,11 +260,17 @@ def create_node(content: str, section: str, doc_id: str, node_index: int, tags: 
     """
     node_id = f"{doc_id}_node_{node_index:04d}"
     
-    metadata = {
+    metadata: dict[str, Any] = {
         "doc_id": doc_id,
         "node_index": node_index,
         "token_estimate": estimate_tokens(content)
     }
+    
+    # Check for table content
+    if is_table_placeholder(content):
+        metadata["has_table_placeholder"] = True
+    elif is_paragraph_table_content(content):
+        metadata["has_residual_table"] = True
     
     if tags is not None:
         metadata["tags"] = tags
@@ -203,10 +290,12 @@ def chunk_section(
     start_index: int,
     min_tokens: int = 150,
     max_tokens: int = 400,
-    tags: list[str] = None
+    tags: list[str] | None = None
 ) -> tuple[list[Node], int]:
     """
     Chunk a section into nodes of appropriate size.
+    
+    Table atomic guard: never split inside table blocks or placeholders.
     
     Args:
         section_content: Text content of the section
@@ -220,20 +309,23 @@ def chunk_section(
     Returns:
         Tuple of (list of nodes, next index)
     """
-    nodes = []
+    nodes: list[Node] = []
     current_index = start_index
     
     # Split into paragraphs first
     paragraphs = split_into_paragraphs(section_content)
     
-    current_content = []
+    current_content: list[str] = []
     current_token_count = 0
     
     for paragraph in paragraphs:
         para_tokens = estimate_tokens(paragraph)
         
-        # If single paragraph is too large, split by sentences
-        if para_tokens > max_tokens:
+        # Check if this is table content (atomic - don't split)
+        is_table_para = is_paragraph_table_content(paragraph)
+        
+        # If single paragraph is too large AND not table content, split by sentences
+        if para_tokens > max_tokens and not is_table_para:
             # First, save any accumulated content
             if current_content:
                 node = create_node(
@@ -290,6 +382,33 @@ def chunk_section(
                     # Add to next accumulation
                     current_content = [remaining]
                     current_token_count = estimate_tokens(remaining)
+        
+        # Table content: keep atomic even if large
+        elif is_table_para:
+            # Save current accumulated content first
+            if current_content:
+                node = create_node(
+                    '\n\n'.join(current_content),
+                    section_heading,
+                    doc_id,
+                    current_index,
+                    tags
+                )
+                nodes.append(node)
+                current_index += 1
+                current_content = []
+                current_token_count = 0
+            
+            # Create node for table content (atomic)
+            node = create_node(
+                paragraph,
+                section_heading,
+                doc_id,
+                current_index,
+                tags
+            )
+            nodes.append(node)
+            current_index += 1
         
         # If adding this paragraph exceeds max, save current and start new
         elif current_token_count + para_tokens > max_tokens:
@@ -356,7 +475,7 @@ def chunk_to_nodes(
     data: dict[str, Any],
     min_tokens: int = 150,
     max_tokens: int = 400,
-    tags: list[str] = None
+    tags: list[str] | None = None
 ) -> dict[str, Any]:
     """
     Convert final_content into semantic nodes for LightRAG.
@@ -395,7 +514,7 @@ def chunk_to_nodes(
     sections = extract_sections(content)
     
     # Chunk each section
-    all_nodes = []
+    all_nodes: list[Node] = []
     current_index = 0
     
     for section in sections:
