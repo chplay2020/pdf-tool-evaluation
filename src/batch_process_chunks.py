@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from split_pdf import split_pdf_by_pages, get_pdf_page_count
+from pipeline.cleaning_v1 import clean_text
 # Note: Import run_full_pipeline inside functions to avoid circular import
 
 # Configure logging
@@ -59,7 +60,7 @@ def calculate_optimal_chunk_pages(total_pages: int, target_pages_per_chunk: int 
 def process_pdf_chunks_internal(
     pdf_path: str,
     device: str = "cpu",
-    timeout: int = 86400,
+    timeout: int = 0,
     batch_size: int = 0,
     min_tokens: int = 150,
     max_tokens: int = 400,
@@ -71,7 +72,7 @@ def process_pdf_chunks_internal(
     Args:
         pdf_path: Đường dẫn PDF gốc
         device: Device xử lý ("cpu" hoặc "gpu")
-        timeout: Timeout cho từng chunk (giây, mặc định: 86400 = 24h)
+        timeout: Timeout cho từng chunk (giây, mặc định: 0 = không giới hạn)
         batch_size: GPU batch size
         min_tokens: Min tokens per node
         max_tokens: Max tokens per node  
@@ -92,7 +93,10 @@ def process_pdf_chunks_internal(
     
     logger.info(f"PDF: {total_pages} trang")
     logger.info(f"Chunk size: {chunk_pages} trang/chunk (tự động tính)")
-    logger.info(f"Timeout: {timeout//3600}h ({timeout}s)")
+    if timeout > 0:
+        logger.info(f"Timeout: {timeout//3600}h ({timeout}s)")
+    else:
+        logger.info("Timeout: không giới hạn")
     logger.info("")
     
     # Import run_full_pipeline locally to avoid circular import
@@ -119,6 +123,9 @@ def process_pdf_chunks_internal(
         chunk_path = Path(chunk_file)
         chunk_name = chunk_path.stem
         logger.info(f"Processing chunk {i}/{len(chunk_files)}: {chunk_name}")
+
+        # Calculate page offset for this sub-chunk (1-indexed)
+        page_offset = (i - 1) * chunk_pages
 
         try:
             # Copy chunk file to data/raw for processing
@@ -151,8 +158,35 @@ def process_pdf_chunks_internal(
                 if chunk_temp_dir.exists():
                     shutil.rmtree(chunk_temp_dir, ignore_errors=True)
 
-            # Collect nodes
+            # Collect nodes  — adjust page numbers by offset
             nodes = output.get("nodes", [])
+            for node in nodes:
+                md = node.get("metadata", {})
+                # Get local page from node (estimated within sub-PDF)
+                local_ps = (
+                    node.get("page_start")
+                    or md.get("page_start")
+                    or node.get("page", 1)
+                )
+                local_pe = (
+                    node.get("page_end")
+                    or md.get("page_end")
+                    or local_ps
+                )
+                if not isinstance(local_ps, int) or local_ps < 1:
+                    local_ps = 1
+                if not isinstance(local_pe, int) or local_pe < 1:
+                    local_pe = local_ps
+                # Offset to global page number
+                global_ps = local_ps + page_offset
+                global_pe = local_pe + page_offset
+                # Cap at total_pages
+                global_ps = min(global_ps, total_pages) if total_pages else global_ps
+                global_pe = min(global_pe, total_pages) if total_pages else global_pe
+                md["page_start"] = global_ps
+                md["page_end"] = global_pe
+                node["page_start"] = global_ps
+                node["page_end"] = global_pe
             all_nodes.extend(nodes)
 
             # Collect tags và domains
@@ -178,7 +212,11 @@ def process_pdf_chunks_internal(
     output_dir = Path("data/processed")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Re-index nodes
+# Re-index nodes and sort by page
+    all_nodes.sort(key=lambda n: (
+        n.get("page_start", n.get("metadata", {}).get("page_start", 1)),
+        n.get("metadata", {}).get("source_char_pos", 0),
+    ))
     final_nodes: list[dict[str, Any]] = []  # type: ignore[valid-type]
     for idx, node in enumerate(all_nodes):
         node["id"] = f"{doc_id}_node_{idx:04d}"
@@ -198,12 +236,15 @@ def process_pdf_chunks_internal(
         if domain and domain not in tags:
             tags = tags + [domain]
 
+        # Use actual page data (already offset-adjusted)
+        page = node.get("page_start", metadata.get("page_start", 1))
+
         standard_obj: dict[str, Any] = {  # type: ignore[valid-type]
             "source": f"{doc_id}.pdf",
-            "page": max(1, int((all_nodes.index(node) / len(all_nodes)) * total_pages) + 1),
+            "page": page,
             "chunk_id": chunk_id,
             "tags": tags,
-            "content": node.get("content", "")
+            "content": clean_text(node.get("content", ""))
         }
 
         with open(filepath, "w", encoding="utf-8") as f:
@@ -244,7 +285,7 @@ def process_pdf_chunks_internal(
 def process_pdf_chunks(
     pdf_path: str,
     device: str = "cpu",
-    timeout: int = 86400,
+    timeout: int = 0,
     batch_size: int = 0,
     min_tokens: int = 150,
     max_tokens: int = 400,

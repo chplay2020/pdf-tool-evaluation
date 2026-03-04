@@ -23,6 +23,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from pipeline.cleaning_v1 import clean_text
+
 logger = logging.getLogger(__name__)
 
 
@@ -94,6 +96,25 @@ def get_pdf_page_count(pdf_path: str) -> int:
         return 0
 
 
+def get_node_page(node: dict[str, Any]) -> int | None:
+    """
+    Extract the best available page number from a node.
+
+    Priority: node["page_start"] > node["page"] >
+              metadata["page_start"] > None (caller must fallback).
+    """
+    if "page_start" in node and isinstance(node["page_start"], int) and node["page_start"] > 0:
+        return node["page_start"]
+    if "page" in node and isinstance(node["page"], int) and node["page"] > 0:
+        return node["page"]
+    md = node.get("metadata", {})
+    if isinstance(md, dict):
+        ps = md.get("page_start")
+        if isinstance(ps, int) and ps > 0:
+            return ps
+    return None
+
+
 def convert_to_standard_objects(
     data: dict[str, Any],
     total_pages: int = 0,
@@ -127,7 +148,7 @@ def convert_to_standard_objects(
         )
         total_pages = 0
 
-    # Ước lượng trang cho mỗi chunk
+    # Ước lượng trang cho mỗi chunk (fallback khi node không có page data)
     page_numbers = estimate_page_numbers(nodes, total_pages)
 
     standard_objects: list[dict[str, Any]] = []
@@ -145,17 +166,28 @@ def convert_to_standard_objects(
         # Chunk ID
         chunk_id = node.get("id", f"chunk_{i:04d}")
 
-        # Page
-        page = page_numbers[i] if i < len(page_numbers) else 1
+        # Page: prefer actual page data from node, fallback to estimation
+        actual_page = get_node_page(node)
+        page = actual_page if actual_page is not None else (
+            page_numbers[i] if i < len(page_numbers) else 1
+        )
+
+        # Clean content before export
+        content = clean_text(node.get("content", ""))
 
         standard_obj: dict[str, Any] = {
             "source": source_file,
             "page": page,
             "chunk_id": chunk_id,
             "tags": tags,
-            "content": node.get("content", "")
+            "content": content
         }
         standard_objects.append(standard_obj)
+
+    # Sort by (page, original_index) for deterministic document order
+    indexed: list[tuple[int, dict[str, Any]]] = list(enumerate(standard_objects))
+    indexed.sort(key=lambda t: (t[1]["page"], t[0]))
+    standard_objects = [obj for _, obj in indexed]
 
     return standard_objects
 

@@ -71,7 +71,7 @@ class MedicalNodeCleaner:
         r'---Page Break---',
     ]
     
-    def __init__(self, skip_admin: bool = True, skip_name_list: bool = True, 
+    def __init__(self, skip_admin: bool = False, skip_name_list: bool = False, 
                  skip_toc: bool = False):
         self.skip_admin = skip_admin
         self.skip_name_list = skip_name_list
@@ -539,7 +539,7 @@ class CleaningPipeline:
     """High-level orchestration for batch processing"""
     
     def __init__(self, input_dir: str, output_dir: str, dry_run: bool = False,
-                 skip_admin: bool = True, skip_name_list: bool = True, skip_toc: bool = False):
+                 skip_admin: bool = False, skip_name_list: bool = False, skip_toc: bool = False):
         self.input_dir = Path(input_dir)
         self.output_dir = Path(output_dir)
         self.output_clean_dir = self.output_dir / 'output_clean'
@@ -688,15 +688,15 @@ Examples:
     parser.add_argument(
         '--skip-admin',
         type=lambda x: x.lower() != 'false',
-        default=True,
-        help='Skip administrative content (default: true)'
+        default=False,
+        help='Skip administrative content (default: false)'
     )
     
     parser.add_argument(
         '--skip-name-list',
         type=lambda x: x.lower() != 'false',
-        default=True,
-        help='Skip name lists (default: true)'
+        default=False,
+        help='Skip name lists (default: false)'
     )
     
     parser.add_argument(

@@ -30,6 +30,7 @@ import re
 import json
 import argparse
 import logging
+import unicodedata
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, cast, Optional
@@ -46,6 +47,36 @@ from pipeline.audit_nodes import audit_and_merge_nodes, generate_audit_report, H
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# STRIP CONTROL / INVISIBLE CHARS
+# =============================================================================
+
+_STRIP_CHARS = frozenset('\ufeff\u200b\u200c\u200d\ufffd')
+_NBSP = '\u00a0'
+
+
+def strip_control_chars(text: str) -> str:
+    """
+    Remove invisible / garbage characters commonly left by PDF OCR.
+
+    * BOM (\\ufeff), ZWSP (\\u200b), ZWNJ (\\u200c), ZWJ (\\u200d),
+      replacement char (\\ufffd) → removed.
+    * NBSP (\\u00a0) → regular space.
+    * Other non-printable control chars (except \\n and \\t) → removed.
+    """
+    out: list[str] = []
+    for ch in text:
+        if ch in _STRIP_CHARS:
+            continue
+        if ch == _NBSP:
+            out.append(' ')
+            continue
+        if ch not in ('\n', '\t', '\r') and unicodedata.category(ch).startswith('C'):
+            continue
+        out.append(ch)
+    return ''.join(out)
 
 
 # =============================================================================
@@ -215,14 +246,27 @@ def rechunk_by_structure(
     output_chunks: list[dict[str, Any]] = []
 
     for source, source_nodes in by_source.items():
-        source_nodes.sort(key=lambda n: (n.get('page', 0), n.get('id', '')))
+        source_nodes.sort(key=lambda n: (
+            n.get('page_start',
+                  n.get('page',
+                        n.get('metadata', {}).get('page_start', 0))),
+            n.get('id', ''),
+        ))
 
         # Merge all content
         merged_content = ''
         page_markers: list[tuple[int, int]] = []
 
         for node in source_nodes:
-            page = node.get('page', node.get('metadata', {}).get('node_index', 0))
+            md = node.get('metadata', {})
+            page = (
+                node.get('page_start')
+                or node.get('page')
+                or md.get('page_start')
+                or md.get('node_index', 0) + 1
+            )
+            if not isinstance(page, int) or page < 1:
+                page = 1
             content = node.get('content', '')
             if merged_content:
                 merged_content += '\n\n'
@@ -232,8 +276,14 @@ def rechunk_by_structure(
         if not merged_content.strip():
             continue
 
-        # Clean page markers
-        merged_content = re.sub(r'<!--PAGE:\d+-->\s*', '', merged_content)
+        # Page markers are already removed by cleaning_v1; belt-and-suspenders
+        merged_content = re.sub(r'<!--\s*PAGE\s*:?\s*\d*\s*-->', '', merged_content, flags=re.IGNORECASE)
+        # Also catch PAGE_START/PAGE_END variants
+        merged_content = re.sub(r'<!--\s*PAGE[_\s][^>]*?-->', '', merged_content, flags=re.IGNORECASE)
+        # Strip invisible / control chars
+        merged_content = strip_control_chars(merged_content)
+        # Collapse resulting blank-line runs
+        merged_content = re.sub(r'\n{3,}', '\n\n', merged_content)
 
         # Analysis
         boundaries = find_section_boundaries(merged_content)
@@ -265,11 +315,15 @@ def rechunk_by_structure(
                     if pos <= current_start:
                         section_path = title[:60]
 
+                chunk_page_end = _page_at(break_pos - 1 if break_pos > current_start else current_start, page_markers)
+
                 chunk_id = f"{Path(source).stem}_chunk_{chunk_idx:04d}"
 
                 new_chunk: dict[str, Any] = {
                     'source': source,
                     'page': chunk_page if chunk_page > 0 else 1,
+                    'page_start': chunk_page if chunk_page > 0 else 1,
+                    'page_end': chunk_page_end if chunk_page_end > 0 else (chunk_page if chunk_page > 0 else 1),
                     'chunk_id': chunk_id,
                     'section_path': section_path,
                     'tags': source_nodes[0].get('tags', []) if source_nodes else [],
@@ -277,6 +331,8 @@ def rechunk_by_structure(
                     'metadata': {
                         'char_count': len(chunk_content),
                         'token_count': estimate_tokens(chunk_content),
+                        'page_start': chunk_page if chunk_page > 0 else 1,
+                        'page_end': chunk_page_end if chunk_page_end > 0 else (chunk_page if chunk_page > 0 else 1),
                     },
                 }
                 output_chunks.append(new_chunk)
@@ -362,16 +418,14 @@ def process_single_document(
     doc_id = doc_data.get("source_file", "unknown").replace(".pdf", "")
     doc_id = re.sub(r'[^\w\-]', '_', doc_id)
     
-    # Skip administrative/TOC content
+    # Classify content (flag only, never skip by default)
     content = doc_data.get("content", doc_data.get("cleaned_content", ""))
     if is_administrative(content):
         stats.skipped_admin += 1
-        doc_data["skip_indexing"] = True
         doc_data["quality_flags"] = {"is_administrative": True}
     
     if is_toc(content):
         stats.skipped_toc += 1
-        doc_data["skip_indexing"] = True
         doc_data["quality_flags"] = doc_data.get("quality_flags", {})
         doc_data["quality_flags"]["is_toc"] = True
     
@@ -512,13 +566,17 @@ def run_pipeline(
             all_output_nodes.extend(rechunked)
         else:
             for node in doc_nodes:
+                md = node.get("metadata", {})
+                pg = md.get("page_start", md.get("node_index", 0) + 1)
                 output_node = {
                     "source": processed.get("source_file", "unknown"),
-                    "page": node.get("metadata", {}).get("node_index", 0) + 1,
+                    "page": pg,
+                    "page_start": pg,
+                    "page_end": md.get("page_end", pg),
                     "chunk_id": node.get("id", "unknown"),
-                    "tags": node.get("metadata", {}).get("tags", []),
+                    "tags": md.get("tags", []),
                     "content": node.get("content", ""),
-                    "metadata": node.get("metadata", {}),
+                    "metadata": md,
                 }
                 if "quality_flags" in node:
                     output_node["quality_flags"] = node["quality_flags"]

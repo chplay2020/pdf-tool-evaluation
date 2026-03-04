@@ -36,12 +36,14 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent))
 
 from marker import run_marker_conversion_to_json
-from pipeline.cleaning_v1 import clean_marker_output
+from pipeline.cleaning_v1 import clean_marker_output, clean_text
 from pipeline.final_cleaning import final_clean_content
-from pipeline.chunking import chunk_to_nodes
+from pipeline.chunking import chunk_to_nodes, reorder_nodes_by_position
 from pipeline.audit_nodes import audit_and_merge_nodes
 from pipeline.auto_tagging import add_tags_to_nodes
-from pipeline.export_standard import export_standard_json_files, get_pdf_page_count
+from pipeline.export_standard import (
+    export_standard_json_files, get_pdf_page_count, estimate_page_numbers,
+)
 from export_text import export_plain_text, EXPORT_DIR
 from tools.clean_and_repair_nodes import CleaningPipeline
 from tools.rechunk_by_structure import RechunkPipeline
@@ -208,7 +210,10 @@ def run_chunking_step(
 
 
 def run_clean_and_repair_nodes_step(
-    data: dict[str, Any]
+    data: dict[str, Any],
+    skip_admin: bool = False,
+    skip_name_list: bool = False,
+    skip_toc: bool = False,
 ) -> dict[str, Any]:
     """
     Run node cleaning and repair step (removes noise, fixes tables).
@@ -233,16 +238,22 @@ def run_clean_and_repair_nodes_step(
     # Write nodes to temp directory
     for i, node in enumerate(nodes):
         node_file = temp_clean_dir / f"node_{i:04d}.json"
+        # Inject top-level fields expected by CleaningPipeline
+        export_node = node.copy()
+        export_node.setdefault("page", node.get("metadata", {}).get("page_start", 1))
+        export_node.setdefault("chunk_id", node.get("id", f"node_{i:04d}"))
+        export_node.setdefault("source", node.get("metadata", {}).get("doc_id", "unknown"))
+        export_node.setdefault("tags", node.get("metadata", {}).get("tags", []))
         with open(node_file, "w", encoding="utf-8") as f:
-            json.dump(node, f, ensure_ascii=False, indent=2)
+            json.dump(export_node, f, ensure_ascii=False, indent=2)
     
     # Run cleaning pipeline
     cleaning_pipeline = CleaningPipeline(
         input_dir=str(temp_clean_dir),
         output_dir=str(PROCESSED_DIR / "temp_cleaned_output"),
-        skip_admin=True,
-        skip_name_list=True,
-        skip_toc=False
+        skip_admin=skip_admin,
+        skip_name_list=skip_name_list,
+        skip_toc=skip_toc
     )
     cleaning_pipeline.run()
     
@@ -469,12 +480,21 @@ def create_lightrag_output(data: dict[str, Any], doc_id: str) -> dict[str, Any]:
     # Extract only the nodes with required fields
     nodes: list[dict[str, Any]] = []
     for node in data.get("nodes", []):
-        lightrag_node = {
+        # Clean content one final time before output
+        content = clean_text(node.get("content", ""))
+
+        lightrag_node: dict[str, Any] = {
             "id": node["id"],
-            "content": node["content"],
+            "content": content,
             "section": node.get("section", ""),
             "metadata": node.get("metadata", {})
         }
+        # Carry page_start / page_end at top level for downstream
+        if "page_start" in node:
+            lightrag_node["page_start"] = node["page_start"]
+        if "page_end" in node:
+            lightrag_node["page_end"] = node["page_end"]
+
         nodes.append(lightrag_node)
     
     output: dict[str, Any] = {
@@ -503,7 +523,10 @@ def run_full_pipeline(
     device: str = "cpu",
     timeout: int = 0,
     batch_size: int = 0,
-    auto_chunk_pages: int = 6
+    auto_chunk_pages: int = 6,
+    skip_admin: bool = False,
+    skip_toc: bool = False,
+    skip_name_list: bool = False,
 ) -> dict[str, Any]:
     """
     Run the complete preprocessing pipeline (with integrated tools).
@@ -597,13 +620,33 @@ def run_full_pipeline(
         
         # Step 4: Chunking (create basic nodes)
         chunked_data = run_chunking_step(final_data, min_tokens, max_tokens)
+
+        # Step 4a: Inject estimated page numbers into nodes
+        total_pages_local = get_pdf_page_count(str(pdf_path))
+        if total_pages_local > 0:
+            nodes_list = chunked_data.get("nodes", [])
+            pg_estimates = estimate_page_numbers(nodes_list, total_pages_local)
+            for idx_n, nd in enumerate(nodes_list):
+                pg = pg_estimates[idx_n] if idx_n < len(pg_estimates) else 1
+                md = nd.setdefault("metadata", {})
+                md["page_start"] = pg
+                md["page_end"] = pg
+                nd["page"] = pg  # top-level for downstream compat
+
+        # Step 4b: Reorder nodes by position in source text
+        chunked_data = reorder_nodes_by_position(chunked_data, content_key="final_content")
         
         if save_intermediate:
             with open(TEMP_DIR / f"{doc_id}_04_chunked.json", "w", encoding="utf-8") as f:
                 json.dump(chunked_data, f, ensure_ascii=False, indent=2)
         
         # Step 5: Clean and Repair Nodes (integrated tool - remove noise, fix tables)
-        cleaned_data = run_clean_and_repair_nodes_step(chunked_data)
+        cleaned_data = run_clean_and_repair_nodes_step(
+            chunked_data,
+            skip_admin=skip_admin,
+            skip_name_list=skip_name_list,
+            skip_toc=skip_toc,
+        )
         
         if save_intermediate:
             with open(TEMP_DIR / f"{doc_id}_05_cleaned.json", "w", encoding="utf-8") as f:
@@ -611,6 +654,9 @@ def run_full_pipeline(
         
         # Step 6: Rechunk by Structure (integrated tool - replace 6-page chunking with semantic)
         rechunked_data = run_rechunk_by_structure_step(cleaned_data)
+
+        # Step 6b: Reorder rechunked nodes by position in source text
+        rechunked_data = reorder_nodes_by_position(rechunked_data, content_key="final_content")
         
         if save_intermediate:
             with open(TEMP_DIR / f"{doc_id}_06_rechunked.json", "w", encoding="utf-8") as f:
@@ -767,6 +813,27 @@ Examples:
         help="List available PDF files in data/raw/"
     )
     
+    parser.add_argument(
+        "--skip-admin",
+        action="store_true",
+        default=False,
+        help="Skip administrative content (default: False, content is kept)"
+    )
+    
+    parser.add_argument(
+        "--skip-toc",
+        action="store_true",
+        default=False,
+        help="Skip table of contents content (default: False, content is kept)"
+    )
+    
+    parser.add_argument(
+        "--skip-name-list",
+        action="store_true",
+        default=False,
+        help="Skip name list content (default: False, content is kept)"
+    )
+    
     args = parser.parse_args()
     
     if args.list:
@@ -794,7 +861,10 @@ Examples:
             device=args.device,
             timeout=args.timeout,
             batch_size=args.batch_size,
-            auto_chunk_pages=args.auto_chunk_pages
+            auto_chunk_pages=args.auto_chunk_pages,
+            skip_admin=args.skip_admin,
+            skip_toc=args.skip_toc,
+            skip_name_list=args.skip_name_list,
         )
         
         # Print summary

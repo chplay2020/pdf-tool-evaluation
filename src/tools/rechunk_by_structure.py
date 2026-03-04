@@ -428,7 +428,9 @@ class RechunkPipeline:
         page_to_line: Dict[int, int] = {}  # Map: line_num -> page_num
         
         for node in nodes:
-            page = node.get('page', 0)
+            page = node.get('page',
+                          node.get('page_start',
+                                   node.get('metadata', {}).get('page_start', 0)))
             content = node.get('content', '')
             
             # Record line number of page marker
@@ -450,6 +452,12 @@ class RechunkPipeline:
         if not self.dry_run:
             output_nodes: list[Dict[str, Any]] = []
             for chunk_content, metadata in chunks:
+                # Strip page markers that were added for internal tracking
+                chunk_content = re.sub(
+                    r'<!--\s*PAGE\s*:?\s*\d*\s*-->[\t ]*\n?',
+                    '', chunk_content, flags=re.IGNORECASE,
+                )
+                chunk_content = re.sub(r'\n{3,}', '\n\n', chunk_content).strip()
                 node: Dict[str, Any] = {
                     'source': metadata.source,
                     'page_start': metadata.page_start,

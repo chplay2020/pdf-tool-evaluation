@@ -557,6 +557,71 @@ def chunk_to_nodes(
     return result
 
 
+# ---------------------------------------------------------------------------
+# NODE REORDERING BY POSITION IN SOURCE TEXT
+# ---------------------------------------------------------------------------
+
+def _normalize_ws(text: str) -> str:
+    """Collapse all whitespace runs to a single space (for fuzzy matching)."""
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def reorder_nodes_by_position(
+    data: dict[str, Any],
+    content_key: str = "final_content",
+) -> dict[str, Any]:
+    """
+    Re-sort *nodes* so they follow their order of appearance in *content_key*.
+
+    Algorithm
+    ---------
+    1. Build a normalised (whitespace-collapsed) copy of the source text.
+    2. For each node, take the first 120 chars of its normalised content
+       and ``find()`` that prefix inside the normalised source text.
+       Fall back to 80 then 60 chars if the longer prefix is not found.
+    3. Sort nodes by (pos, original_index) so that:
+       * Nodes whose prefix was found appear in document order.
+       * Nodes whose prefix was NOT found (pos == -1) are appended at
+         the end in their original relative order.
+    4. Write ``source_char_pos`` into each node's metadata for debugging.
+
+    Returns a **shallow copy** of *data* with ``data["nodes"]`` replaced.
+    """
+    source_text = data.get(content_key, "")
+    nodes: list[dict[str, Any]] = data.get("nodes", [])
+
+    if not nodes or not source_text:
+        return data
+
+    norm_source = _normalize_ws(source_text)
+
+    PREFIX_LENGTHS = (120, 80, 60)
+
+    decorated: list[tuple[int, int, dict[str, Any]]] = []
+    for idx, node in enumerate(nodes):
+        node_text = _normalize_ws(node.get("content", ""))
+        pos = -1
+        for plen in PREFIX_LENGTHS:
+            prefix = node_text[:plen]
+            if not prefix:
+                continue
+            pos = norm_source.find(prefix)
+            if pos != -1:
+                break
+        decorated.append((pos if pos != -1 else len(norm_source) + idx, idx, node))
+
+        # Store pos in metadata for debugging
+        md = node.setdefault("metadata", {})
+        md["source_char_pos"] = pos
+
+    # Stable sort: primary = pos, secondary = original index
+    decorated.sort(key=lambda t: (t[0], t[1]))
+
+    result = data.copy()
+    result["nodes"] = [n for _, _, n in decorated]
+    return result
+
+
 if __name__ == "__main__":
     # Test with sample content
     sample_input = {

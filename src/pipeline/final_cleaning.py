@@ -8,6 +8,7 @@ This module performs the final cleaning stage focused on Vietnamese text:
 - Fix common Vietnamese OCR errors  
 - Normalize heading format ("## - ..." -> "## ...")
 - Normalize bullet format ("- +" -> "- " or "  - ")
+- Sanitize any residual page markers / invisible chars (final safety net)
 - Replace <br> in table cells with space
 - Extract and replace tables with placeholders (Option A: tables excluded from indexing)
 - Preserve original meaning (NO paraphrasing or rewriting)
@@ -21,6 +22,8 @@ Date: January 2026
 
 import re
 from typing import Any
+
+from pipeline.cleaning_v1 import remove_page_markers, remove_invisible_chars
 
 
 # Vietnamese character set for word boundary detection
@@ -224,6 +227,22 @@ def clean_redundant_whitespace(text: str) -> str:
     # Multiple newlines to double
     text = re.sub(r'\n{3,}', '\n\n', text)
     
+    return text.strip()
+
+
+def sanitize_residual_artifacts(text: str) -> str:
+    """
+    Final safety-net pass: catch any page markers or invisible chars that
+    survived earlier cleaning stages (e.g. introduced by table extraction or
+    line-break fixup).
+
+    This intentionally re-uses the same helpers from cleaning_v1 so the
+    logic is not duplicated.
+    """
+    text = remove_page_markers(text)
+    text = remove_invisible_chars(text)
+    # Collapse any newly-created blank-line runs
+    text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
 
@@ -451,6 +470,9 @@ def final_clean_content(data: dict[str, Any], extract_tables: bool = True) -> di
     tables_removed: list[dict[str, Any]] = []
     if extract_tables:
         content, tables_removed = extract_and_replace_tables(content)
+    
+    # Final safety-net: remove any residual page markers / invisible chars
+    content = sanitize_residual_artifacts(content)
     
     # Create output with original fields plus final content
     result = data.copy()

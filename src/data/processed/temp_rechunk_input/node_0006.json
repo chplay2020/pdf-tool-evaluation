@@ -1,0 +1,26 @@
+{
+  "id": "test-22_part_01_node_0006",
+  "content": "(Ban hành kèm theo Quyết định số 1840/QĐ-BYT ngày 03 / 6 /2025)",
+  "section": "HƯỚNG DẪN CHẨN ĐOÁN VÀ ĐIỀU TRỊ CÚM MÙA",
+  "metadata": {
+    "doc_id": "test-22_part_01",
+    "node_index": 6,
+    "token_estimate": 15,
+    "page_start": 4,
+    "page_end": 4,
+    "source_char_pos": 3271
+  },
+  "page": 4,
+  "chunk_id": "test-22_part_01_node_0006",
+  "source": "test-22_part_01",
+  "tags": [],
+  "metadata_clean": {
+    "actions": [],
+    "flags": {
+      "is_administrative": false,
+      "is_name_list": false,
+      "is_toc": false
+    },
+    "warnings": []
+  }
+}

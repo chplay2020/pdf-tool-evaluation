@@ -1,0 +1,28 @@
+[
+  {
+    "id": "test-22_part_02_node_0005",
+    "content": "- 1. Clinical practice guidelines for influenza. Geneva: World Health Organization; 2024. Licence: CC BY-NC-SA 3. 0 IGO.\n- 2. Guidelines for the clinical management of severe illness from influenza virus infections. Geneva: World Health Organization; 2021. Licence: CC BY-NC-SA 3. 0 IGO.\n- 3. https://dav. gov. vn/upload/attach/4122015\\_influvac. pdf\n- 4. https://dav. gov. vn/upload/attach/4122015\\_vaxigrip\\_0\\_25ml. pdf\n- 5. https://dav. gov. vn/upload/attach/4122015\\_influvac. pdf",
+    "section": "Tài liệu tham khảo:",
+    "metadata": {
+      "doc_id": "test-22_part_02",
+      "node_index": 5,
+      "token_estimate": 121,
+      "page_start": 6,
+      "page_end": 6,
+      "source_char_pos": 7130
+    },
+    "page": 6,
+    "chunk_id": "test-22_part_02_node_0005",
+    "source": "test-22_part_02",
+    "tags": [],
+    "metadata_clean": {
+      "actions": [],
+      "flags": {
+        "is_administrative": false,
+        "is_name_list": false,
+        "is_toc": false
+      },
+      "warnings": []
+    }
+  }
+]

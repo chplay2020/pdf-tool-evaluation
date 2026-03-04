@@ -156,7 +156,7 @@ def run_marker_conversion_to_json(
     input_pdf: str,
     output_json: str,
     device: str = "cpu",
-    timeout: int = 1800,
+    timeout: int = 0,
     batch_size: int = 0
 ) -> dict[str, Any]:
     """
@@ -166,7 +166,7 @@ def run_marker_conversion_to_json(
         input_pdf: Path to the input PDF file
         output_json: Path to save the JSON output
         device: Device to use for processing ("cpu" or "gpu"). Default: "cpu"
-        timeout: Timeout in seconds for conversion (default: 1800 = 30 min)
+        timeout: Timeout in seconds for conversion (default: 0 = unlimited)
         batch_size: Batch size for GPU processing (0 = auto). Increase for faster GPU processing
                    but requires more VRAM. Typical: 16-32 for 8GB GPU, 64+ for 16GB+.
         

@@ -7,7 +7,7 @@
 - **After merge**: 1
 - **Final nodes**: 1
 - **Removed invalid**: 0
-- **Average tokens**: 2277.0
+- **Average tokens**: 2243.0
 
 ## Quality Issues
 

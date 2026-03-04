@@ -1,0 +1,17 @@
+[
+  {
+    "source": "node_0003",
+    "page_start": 1,
+    "page_end": 3,
+    "chunk_id": "node_0003_rechunk_0000",
+    "section_path": "Document",
+    "content": "- Bố trí khu vực điều trị riêng giúp ngăn ngừa lây nhiễm.\n- Điều trị thuốc kháng vi rút phù hợp.\n- Điều trị triệu chứng và bệnh lý nền kết hợp nếu có.\n- Theo dõi, phát hiện và xử trí các biểu hiện nặng của bệnh.\n- Điều trị hỗ trợ và phục hồi chức năng. ## 2. Điều trị cụ thể",
+    "metadata_rechunk": {
+      "char_count": 291,
+      "token_count": 66,
+      "has_table": false,
+      "header_count": 0,
+      "section_count": 0
+    }
+  }
+]

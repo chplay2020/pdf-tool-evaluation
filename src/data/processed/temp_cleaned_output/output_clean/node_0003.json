@@ -1,0 +1,28 @@
+[
+  {
+    "id": "test-22_part_02_node_0003",
+    "content": "- Bố trí khu vực điều trị riêng giúp ngăn ngừa lây nhiễm.\n- Điều trị thuốc kháng vi rút phù hợp.\n- Điều trị triệu chứng và bệnh lý nền kết hợp nếu có.\n- Theo dõi, phát hiện và xử trí các biểu hiện nặng của bệnh.\n- Điều trị hỗ trợ và phục hồi chức năng. ## 2. Điều trị cụ thể",
+    "section": "1. Nguyên tắc điều trị",
+    "metadata": {
+      "doc_id": "test-22_part_02",
+      "node_index": 3,
+      "token_estimate": 68,
+      "page_start": 3,
+      "page_end": 3,
+      "source_char_pos": 2776
+    },
+    "page": 3,
+    "chunk_id": "test-22_part_02_node_0003",
+    "source": "test-22_part_02",
+    "tags": [],
+    "metadata_clean": {
+      "actions": [],
+      "flags": {
+        "is_administrative": false,
+        "is_name_list": false,
+        "is_toc": false
+      },
+      "warnings": []
+    }
+  }
+]
