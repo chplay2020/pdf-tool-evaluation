@@ -1,18 +1,20 @@
 {
-  "id": "test-22_part_02_node_0002",
-  "content": "Biểu hiện triệu chứng viêm đường hô hấp cấp, hoặc có biểu hiện suy hô hấp tiến triển nhanh và có yếu tố dịch tễ (tiếp xúc gần với người bệnh được khẳng định cúm hoặc ở trong khu vực đang có dịch cúm mùa lưu hành). ### 2. 4. 2. Ca bệnh khẳng định\nCa bệnh nghi ngờ có kết quả xét nghiệm phát hiện vi rút cúm dương tính bằng kỹ thuật test nhanh, RT-PCR, Multiplex-PCR. #### 2. 4. 3. Chẩn đoán phân biệt\nNên thực hiện các xét nghiệm để chẩn đoán phân biệt với các căn nguyên gây nhiễm trùng đường hô hấp khác trong trường hợp nghi ngờ cúm mà xét nghiệm khẳng định cúm âm tính. ## III. ĐIỀU TRỊ",
-  "section": "2. 4. 1. Ca bệnh nghi ngờ",
+  "id": "chuẩn-đoán-và-điều-trị-cúm-mùa_node_0008",
+  "content": "- Thời gian ủ bệnh thường từ 1 đến 4 ngày.\n- Khởi phát thường đột ngột với sốt, ớn lạnh, đau đầu, đau cơ, mệt mỏi.\n- Ho khan, đau họng, nghẹt mũi hoặc chảy nước mũi.\n- Ở trẻ em có thể gặp triệu chứng buồn nôn, nôn, hoặc tiêu chảy.\n- Triệu chứng có thể không điển hình ở người lớn > 65 tuổi.\n- Phần lớn các người bệnh nhiễm cúm mùa chỉ sốt trong 3 đến 5 ngày, ho có thể kéo dài hơn và tự hồi phục. Tuy nhiên một số người bệnh có thể tiến triển thành cúm nặng. ## 1. 2. Biểu hiện nặng của bệnh\n- Biểu hiện viêm phổi: Đau tức ngực khó thở tăng dần. Có thể có biểu hiện tình trạng suy hô hấp cấp tiến triển nhanh, thậm chí biểu hiện sốc và suy đa cơ quan nếu không được phát hiện và điều trị kịp thời.\n- Đợt bùng phát của các bệnh lý mạn tính (như COPD, Hen, Suy tim): Những người bệnh có bệnh lý nền khi nhiễm cúm ngoài biểu hiện cúm có thể biểu hiện những đợt tiến triển nặng của bệnh nền đang có. #### 2. Cận lâm sàng",
+  "section": "1. 1. Biểu hiện lâm sàng thường gặp",
   "metadata": {
-    "doc_id": "test-22_part_02",
-    "node_index": 2,
-    "token_estimate": 147,
-    "page_start": 2,
-    "page_end": 2,
-    "source_char_pos": 2158
+    "doc_id": "chuẩn-đoán-và-điều-trị-cúm-mùa",
+    "node_index": 8,
+    "token_estimate": 229,
+    "source_char_pos": 5848,
+    "page_start": 6,
+    "page_end": 7
   },
-  "page": 2,
-  "chunk_id": "test-22_part_02_node_0002",
-  "source": "test-22_part_02",
+  "page_start": 6,
+  "page_end": 7,
+  "page": 6,
+  "chunk_id": "chuẩn-đoán-và-điều-trị-cúm-mùa_node_0008",
+  "source": "chuẩn-đoán-và-điều-trị-cúm-mùa",
   "tags": [],
   "metadata_clean": {
     "actions": [],

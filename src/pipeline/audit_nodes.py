@@ -304,7 +304,7 @@ def audit_and_merge_nodes(
     nodes = merged_nodes
     after_merge = len(nodes)
 
-    # ---- STEP 3: VALIDATE (ADAPTIVE) ----
+    # ---- STEP 3: VALIDATE (keep all non-empty; merge remaining shorts with neighbors) ----
     valid_nodes: list[NodeDict] = []
     removed_invalid = 0
     for node in nodes:
@@ -312,14 +312,26 @@ def audit_and_merge_nodes(
         if not text:
             removed_invalid += 1
             continue
-        if estimate_tokens(text) < effective_min_tokens:
-            removed_invalid += 1
-            continue
         valid_nodes.append(node)
+
+    # Second merge pass: merge any remaining short nodes with their neighbor
+    final_merged: list[NodeDict] = []
+    i = 0
+    while i < len(valid_nodes):
+        current = valid_nodes[i]
+        # If current is short and there is a next node, merge forward
+        if (estimate_tokens(current["content"]) < effective_min_tokens
+                and i + 1 < len(valid_nodes)):
+            current = merge_nodes(current, valid_nodes[i + 1], doc_id)
+            i += 2
+        else:
+            i += 1
+        final_merged.append(current)
+    nodes = final_merged
 
     # ---- STEP 4: REINDEX ----
     final_nodes: list[NodeDict] = []
-    for i, node in enumerate(valid_nodes):
+    for i, node in enumerate(nodes):
         final_node: NodeDict = {
             "id": f"{doc_id}_node_{i:04d}",
             "content": node["content"],
@@ -330,6 +342,20 @@ def audit_and_merge_nodes(
                 "token_estimate": estimate_tokens(node["content"]),
             },
         }
+
+        # Preserve page_start / page_end / source_char_pos from upstream
+        for key in ("page_start", "page_end"):
+            if key in node:
+                final_node[key] = node[key]
+            elif key in node.get("metadata", {}):
+                final_node[key] = node["metadata"][key]
+        old_md = node.get("metadata", {})
+        if "source_char_pos" in old_md:
+            final_node["metadata"]["source_char_pos"] = old_md["source_char_pos"]
+        if "page_start" in old_md:
+            final_node["metadata"]["page_start"] = old_md["page_start"]
+        if "page_end" in old_md:
+            final_node["metadata"]["page_end"] = old_md["page_end"]
         
         # Preserve quality_flags if present
         if "quality_flags" in node:

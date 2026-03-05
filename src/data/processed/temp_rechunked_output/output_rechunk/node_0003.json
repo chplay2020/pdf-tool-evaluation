@@ -2,13 +2,13 @@
   {
     "source": "node_0003",
     "page_start": 1,
-    "page_end": 3,
+    "page_end": 8,
     "chunk_id": "node_0003_rechunk_0000",
     "section_path": "Document",
-    "content": "- Bố trí khu vực điều trị riêng giúp ngăn ngừa lây nhiễm.\n- Điều trị thuốc kháng vi rút phù hợp.\n- Điều trị triệu chứng và bệnh lý nền kết hợp nếu có.\n- Theo dõi, phát hiện và xử trí các biểu hiện nặng của bệnh.\n- Điều trị hỗ trợ và phục hồi chức năng. ## 2. Điều trị cụ thể",
+    "content": "Biểu hiện triệu chứng viêm đường hô hấp cấp, hoặc có biểu hiện suy hô hấp tiến triển nhanh và có yếu tố dịch tễ (tiếp xúc gần với người bệnh được khẳng định cúm hoặc ở trong khu vực đang có dịch cúm mùa lưu hành). ## 2. 4. 2. Ca bệnh khẳng định\nCa bệnh nghi ngờ có kết quả xét nghiệm phát hiện vi rút cúm dương tính bằng kỹ thuật test nhanh, RT-PCR, Multiplex-PCR. ## 2. 4. 3. Chẩn đoán phân biệt\nNên thực hiện các xét nghiệm để chẩn đoán phân biệt với các căn nguyên gây nhiễm trùng đường hô hấp khác trong trường hợp nghi ngờ cúm mà xét nghiệm khẳng định cúm âm tính. ## III. ĐIỀU TRỊ",
     "metadata_rechunk": {
-      "char_count": 291,
-      "token_count": 66,
+      "char_count": 603,
+      "token_count": 127,
       "has_table": false,
       "header_count": 0,
       "section_count": 0

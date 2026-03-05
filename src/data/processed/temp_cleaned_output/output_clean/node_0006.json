@@ -1,19 +1,21 @@
 [
   {
-    "id": "test-22_part_01_node_0006",
-    "content": "(Ban hành kèm theo Quyết định số 1840/QĐ-BYT ngày 03 / 6 /2025)",
-    "section": "HƯỚNG DẪN CHẨN ĐOÁN VÀ ĐIỀU TRỊ CÚM MÙA",
+    "id": "chuẩn-đoán-và-điều-trị-cúm-mùa_node_0000",
+    "content": "Số: 1840 /QĐ-BYT\nHà Nội, ngày 03 tháng 6 năm 2025",
+    "section": "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM Độc lập - Tự do - Hạnh phúc",
     "metadata": {
-      "doc_id": "test-22_part_01",
-      "node_index": 6,
-      "token_estimate": 15,
-      "page_start": 4,
-      "page_end": 4,
-      "source_char_pos": 3271
+      "doc_id": "chuẩn-đoán-và-điều-trị-cúm-mùa",
+      "node_index": 0,
+      "token_estimate": 12,
+      "source_char_pos": -1,
+      "page_start": null,
+      "page_end": null
     },
-    "page": 4,
-    "chunk_id": "test-22_part_01_node_0006",
-    "source": "test-22_part_01",
+    "page_start": null,
+    "page_end": null,
+    "page": null,
+    "chunk_id": "chuẩn-đoán-và-điều-trị-cúm-mùa_node_0000",
+    "source": "chuẩn-đoán-và-điều-trị-cúm-mùa",
     "tags": [],
     "metadata_clean": {
       "actions": [],

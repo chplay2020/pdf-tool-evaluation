@@ -53,8 +53,10 @@ def split_pdf_by_pages(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # Mở PDF
-    doc = fitz.open(str(pdf_path))
+    # Mở PDF (Unicode-safe via bytes stream)
+    with open(pdf_path, 'rb') as fh:
+        pdf_bytes = fh.read()
+    doc = fitz.open(stream=pdf_bytes, filetype='pdf')
     total_pages = int(getattr(doc, "page_count", 0))
     doc.close()
 
@@ -72,8 +74,10 @@ def split_pdf_by_pages(
         chunk_name = f"{stem}_part_{chunk_idx + 1:02d}.pdf"
         chunk_path = output_path / chunk_name
 
-        # Trích tách trang
-        doc = fitz.open(str(pdf_path))  # type: ignore[attr-defined]
+        # Trích tách trang (Unicode-safe)
+        with open(pdf_path, 'rb') as fh:
+            pdf_bytes = fh.read()
+        doc = fitz.open(stream=pdf_bytes, filetype='pdf')
         new_doc = fitz.open()  # type: ignore[attr-defined]
         new_doc.insert_pdf(doc, from_page=start_page, to_page=end_page - 1)  # type: ignore[attr-defined]
         new_doc.save(str(chunk_path))  # type: ignore[attr-defined]
@@ -89,7 +93,9 @@ def split_pdf_by_pages(
 def get_pdf_page_count(pdf_path: str) -> int:
     """Lấy tổng số trang PDF."""
     try:
-        doc = fitz.open(pdf_path)  # type: ignore[attr-defined]
+        with open(pdf_path, 'rb') as fh:
+            pdf_bytes = fh.read()
+        doc = fitz.open(stream=pdf_bytes, filetype='pdf')  # type: ignore[attr-defined]
         count = int(getattr(doc, "page_count", 0))
         doc.close()  # type: ignore[attr-defined]
         return count

@@ -42,8 +42,12 @@ from pipeline.chunking import chunk_to_nodes, reorder_nodes_by_position
 from pipeline.audit_nodes import audit_and_merge_nodes
 from pipeline.auto_tagging import add_tags_to_nodes
 from pipeline.export_standard import (
-    export_standard_json_files, get_pdf_page_count, estimate_page_numbers,
+    export_standard_json_files, get_pdf_page_count,
 )
+from pipeline.page_utils import (
+    extract_per_page_text, assign_pages_to_nodes,
+)
+from pipeline.text_utils import ensure_single_context, normalize_source
 from export_text import export_plain_text, EXPORT_DIR
 from tools.clean_and_repair_nodes import CleaningPipeline
 from tools.rechunk_by_structure import RechunkPipeline
@@ -523,7 +527,7 @@ def run_full_pipeline(
     device: str = "cpu",
     timeout: int = 0,
     batch_size: int = 0,
-    auto_chunk_pages: int = 6,
+    auto_chunk_pages: int = 0,
     skip_admin: bool = False,
     skip_toc: bool = False,
     skip_name_list: bool = False,
@@ -621,20 +625,28 @@ def run_full_pipeline(
         # Step 4: Chunking (create basic nodes)
         chunked_data = run_chunking_step(final_data, min_tokens, max_tokens)
 
-        # Step 4a: Inject estimated page numbers into nodes
-        total_pages_local = get_pdf_page_count(str(pdf_path))
-        if total_pages_local > 0:
+        # Step 4a: Marker-based page assignment (OPTION A — source of truth)
+        #   Extract per-page text from the *original* PDF with PyMuPDF,
+        #   prepend <!--PAGE:N--> markers, then locate each node's content
+        #   inside the paged reference to derive page_start / page_end.
+        logger.info("Step 4a: Assigning page numbers from PDF page markers")
+        try:
+            paged_content = extract_per_page_text(str(pdf_path))
             nodes_list = chunked_data.get("nodes", [])
-            pg_estimates = estimate_page_numbers(nodes_list, total_pages_local)
-            for idx_n, nd in enumerate(nodes_list):
-                pg = pg_estimates[idx_n] if idx_n < len(pg_estimates) else 1
-                md = nd.setdefault("metadata", {})
-                md["page_start"] = pg
-                md["page_end"] = pg
-                nd["page"] = pg  # top-level for downstream compat
+            assign_pages_to_nodes(nodes_list, paged_content)
+            # Store paged_content for downstream reuse (rechunk reorder, etc.)
+            chunked_data["_paged_content"] = paged_content
+            assigned = sum(1 for n in nodes_list if n.get("page_start") is not None)
+            logger.info(f"  ✓ Page assignment: {assigned}/{len(nodes_list)} nodes located")
+        except Exception as exc:
+            logger.warning(f"  ⚠ Per-page extraction failed ({exc}); page_start may be None")
 
-        # Step 4b: Reorder nodes by position in source text
-        chunked_data = reorder_nodes_by_position(chunked_data, content_key="final_content")
+        # Step 4b: Sort nodes by (page_start, source_char_pos) for deterministic order
+        nodes_list = chunked_data.get("nodes", [])
+        nodes_list.sort(key=lambda n: (
+            n.get("page_start") if n.get("page_start") is not None else 999999,
+            n.get("metadata", {}).get("source_char_pos", 0) if n.get("metadata", {}).get("source_char_pos", -1) >= 0 else 999999,
+        ))
         
         if save_intermediate:
             with open(TEMP_DIR / f"{doc_id}_04_chunked.json", "w", encoding="utf-8") as f:
@@ -655,8 +667,16 @@ def run_full_pipeline(
         # Step 6: Rechunk by Structure (integrated tool - replace 6-page chunking with semantic)
         rechunked_data = run_rechunk_by_structure_step(cleaned_data)
 
-        # Step 6b: Reorder rechunked nodes by position in source text
-        rechunked_data = reorder_nodes_by_position(rechunked_data, content_key="final_content")
+        # Step 6b: Re-assign pages to rechunked nodes via paged reference
+        paged_ref = rechunked_data.get("_paged_content") or chunked_data.get("_paged_content", "")
+        if paged_ref:
+            assign_pages_to_nodes(rechunked_data.get("nodes", []), paged_ref)
+            rechunked_data["_paged_content"] = paged_ref
+        # Sort rechunked nodes by (page_start, source_char_pos)
+        rechunked_data.get("nodes", []).sort(key=lambda n: (
+            n.get("page_start") if n.get("page_start") is not None else 999999,
+            n.get("metadata", {}).get("source_char_pos", 0) if n.get("metadata", {}).get("source_char_pos", -1) >= 0 else 999999,
+        ))
         
         if save_intermediate:
             with open(TEMP_DIR / f"{doc_id}_06_rechunked.json", "w", encoding="utf-8") as f:
@@ -701,6 +721,44 @@ def run_full_pipeline(
         )
         
         logger.info(f"  ✓ Exported {len(standard_files)} standard JSON files to {standard_output_dir}")
+        
+        # Step 11: Export cleaned_final/ — minimal {source, page, content}
+        logger.info("Step 11: Exporting cleaned_final/ (minimal format)")
+        cleaned_final_dir = BASE_DIR / "cleaned_final"
+        cleaned_final_dir.mkdir(parents=True, exist_ok=True)
+
+        # Normalize source: strip _part_XX suffix, ensure .pdf
+        source_file_name = normalize_source(pdf_path.name)
+        minimal_records: list[dict[str, Any]] = []
+        for i, node in enumerate(output["nodes"]):
+            pg = None
+            if isinstance(node.get("page_start"), int) and node["page_start"] > 0:
+                pg = node["page_start"]
+            elif isinstance(node.get("page"), int) and node["page"] > 0:
+                pg = node["page"]
+            if pg is None:
+                pg = 1
+
+            content = ensure_single_context(source_file_name, node.get("content", ""))
+            record: dict[str, Any] = {
+                "source": source_file_name,
+                "page": pg,
+                "content": content,
+            }
+            minimal_records.append(record)
+
+            chunk_id = node.get("id", f"chunk_{i:04d}")
+            cf_path = cleaned_final_dir / f"{doc_id}_{chunk_id}.json"
+            with open(cf_path, "w", encoding="utf-8") as f:
+                json.dump(record, f, ensure_ascii=False, indent=2)
+
+        # Combined _final.json = JSON ARRAY
+        base_name = normalize_source(pdf_path.name).replace('.pdf', '')
+        final_json_path = cleaned_final_dir / f"{base_name}_final.json"
+        with open(final_json_path, "w", encoding="utf-8") as f:
+            json.dump(minimal_records, f, ensure_ascii=False, indent=2)
+
+        logger.info(f"  ✓ {len(minimal_records)} files → {cleaned_final_dir}")
         
         logger.info("=" * 60)
         logger.info(f"✓ Full pipeline (with integrated tools) completed successfully!")
@@ -803,8 +861,8 @@ Examples:
     parser.add_argument(
         "--auto-chunk-pages",
         type=int,
-        default=6,
-        help="Auto split PDF if > N pages (default: 6). Set 0 to disable auto-chunking"
+        default=0,
+        help="Auto split PDF if > N pages (default: 0 = disabled). Set e.g. 6 to enable auto-chunking"
     )
     
     parser.add_argument(

@@ -1,0 +1,28 @@
+{
+  "id": "chuẩn-đoán-và-điều-trị-cúm-mùa_node_0010",
+  "content": "Phân độ lâm sàng bệnh\n- **Cúm nhẹ**: Người bệnh chỉ có triệu chứng của đường hô hấp trên, không có bất kỳ biểu hiện nào của cúm nặng. ## - Cúm nặng:\n - Biểu hiện suy hô hấp: Khó thở, thở nhanh, thở gắng sức hoặc cần hỗ trợ hô hấp để đảm bảo mục tiêu SpO2 > 95%.\n - Biểu hiện suy các cơ quan khác: rối loạn tri giác, sốc, hoặc suy đa cơ quan khác.\n- Các yếu tố nguy cơ nhiễm cúm nặng: Khai thác, đánh giá các yếu tố nguy cơ nhiễm nặng, bao gồm:\n - Tuổi cao > 65 tuổi.\n - Có tình trạng suy giảm miễn dịch.\n - Có bệnh nền: Bệnh tim mạch mãn tính, Bệnh phổi mãn tính, Suy thận, Xơ gan, tiểu đường.\n - Trẻ em < 5 tuổi (nhất là < 2 tuổi).\n - Phụ nữ mang thai (đặc biệt là 3 tháng cuối) hoặc mới sinh 2 tuần. #### 2. 4. Chẩn đoán",
+  "section": "2. 1. Xét nghiệm vi sinh chẩn đoán cúm mùa",
+  "metadata": {
+    "doc_id": "chuẩn-đoán-và-điều-trị-cúm-mùa",
+    "node_index": 10,
+    "token_estimate": 178,
+    "source_char_pos": -1,
+    "page_start": null,
+    "page_end": null
+  },
+  "page_start": null,
+  "page_end": null,
+  "page": null,
+  "chunk_id": "chuẩn-đoán-và-điều-trị-cúm-mùa_node_0010",
+  "source": "chuẩn-đoán-và-điều-trị-cúm-mùa",
+  "tags": [],
+  "metadata_clean": {
+    "actions": [],
+    "flags": {
+      "is_administrative": false,
+      "is_name_list": false,
+      "is_toc": false
+    },
+    "warnings": []
+  }
+}

@@ -1,18 +1,20 @@
 {
-  "id": "test-22_part_01_node_0007",
-  "content": "Cúm mùa (Seasonal Influenza) là một bệnh nhiễm trùng hô hấp cấp tính do những chủng vi rút cúm đang lưu hành (A/H1N1; A/H3N2; B) gây ra. Bệnh lây truyền qua đường hô hấp, chủ yếu qua giọt bắn hô hấp hoặc qua tiếp xúc với các bề mặt bị nhiễm vi rút. Bệnh thường biểu hiện nhẹ nhưng cũng có thể diễn biến nặng có nguy cơ đe dọa tính mạng cao. Nhóm nguy cơ diễn biến nặng gồm: Phụ nữ mang thai, người già (>65 tuổi), trẻ nhỏ, người có bệnh nền, người bị suy giảm miễn dịch. Bệnh xảy ra quanh năm nhưng thường tăng cao vào mùa đông xuân. Bệnh đã có vắc xin phòng bệnh. #### II. CHẨN ĐOÁN",
-  "section": "I. ĐẠI CƯƠNG",
+  "id": "chuẩn-đoán-và-điều-trị-cúm-mùa_node_0001",
+  "content": "Về việc ban hành tài liệu chuyên môn \"Hướng dẫn chẩn đoán và điều trị cúm mùa\"",
+  "section": "QUYÉT ĐỊNH",
   "metadata": {
-    "doc_id": "test-22_part_01",
-    "node_index": 7,
-    "token_estimate": 145,
-    "page_start": 5,
-    "page_end": 5,
-    "source_char_pos": 3353
+    "doc_id": "chuẩn-đoán-và-điều-trị-cúm-mùa",
+    "node_index": 1,
+    "token_estimate": 19,
+    "source_char_pos": -1,
+    "page_start": null,
+    "page_end": null
   },
-  "page": 5,
-  "chunk_id": "test-22_part_01_node_0007",
-  "source": "test-22_part_01",
+  "page_start": null,
+  "page_end": null,
+  "page": null,
+  "chunk_id": "chuẩn-đoán-và-điều-trị-cúm-mùa_node_0001",
+  "source": "chuẩn-đoán-và-điều-trị-cúm-mùa",
   "tags": [],
   "metadata_clean": {
     "actions": [],

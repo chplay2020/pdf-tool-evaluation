@@ -5,13 +5,11 @@ Export Standard JSON Module - One Object per File
 
 Xuất dữ liệu đã xử lý ra định dạng JSON chuẩn, mỗi file chứa một đối tượng duy nhất.
 
-Standard Schema:
+Standard Schema (tối giản):
 {
   "source": "TenFile.pdf",
   "page": 1,
-  "chunk_id": "doc_node_0000",
-  "tags": ["Tag1", "Tag2"],
-  "content": "Nội dung chunk..."
+  "content": "[Ngữ cảnh: ...]\n\nNội dung chunk..."
 }
 
 Author: Research Assistant
@@ -20,10 +18,12 @@ Date: February 2026
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
-from pipeline.cleaning_v1 import clean_text
+from pipeline.cleaning_v1 import clean_text, clean_text_basic, remove_page_markers
+from pipeline.text_utils import ensure_single_context, normalize_source
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,9 @@ def get_pdf_page_count(pdf_path: str) -> int:
     """
     try:
         import fitz  # type: ignore[import-not-found]
-        doc = fitz.open(pdf_path)
+        with open(pdf_path, 'rb') as fh:
+            pdf_bytes = fh.read()
+        doc = fitz.open(stream=pdf_bytes, filetype='pdf')
         page_count = int(getattr(doc, "page_count", 0))
         doc.close()
         return page_count
@@ -115,6 +117,62 @@ def get_node_page(node: dict[str, Any]) -> int | None:
     return None
 
 
+_CONTEXT_PREFIX_RE = re.compile(r'^\[Ngữ cảnh:.*?\]\s*\n')
+
+
+def build_context(source_title: str, content: str) -> str:
+    """
+    Tạo 1 dòng ngữ cảnh ngắn gọn từ nội dung chunk và tên tài liệu.
+
+    Format: "Trích đoạn từ <source_title>: <ý chính>"
+    Bảo đảm ≤ 200 ký tự, không chứa xuống dòng.
+
+    Args:
+        source_title: Tên file / tài liệu nguồn (vd: "test-22.pdf")
+        content: Nội dung chunk đã được clean
+
+    Returns:
+        Chuỗi ngữ cảnh (KHÔNG bao gồm dấu [] bọc ngoài)
+    """
+    # Normalise whitespace for extraction
+    text = re.sub(r'\s+', ' ', content).strip()
+
+    # Strip markdown heading markers, bullets, numbering at the start
+    text = re.sub(r'^(?:[#*\-•]+|\d+[.)\s])+\s*', '', text).strip()
+
+    if not text:
+        return f"Trích đoạn từ {source_title}"
+
+    # Lấy 1-2 câu đầu (chia bởi dấu chấm / chấm phẩy / xuống dòng)
+    sentences = re.split(r'[.;!?]\s', text, maxsplit=2)
+    main_idea = sentences[0].strip()
+
+    # Nếu câu đầu quá ngắn (< 10 ký tự) và có câu tiếp, ghép thêm
+    if len(main_idea) < 10 and len(sentences) > 1:
+        main_idea = f"{main_idea}. {sentences[1].strip()}"
+
+    prefix = f"Trích đoạn từ {source_title}: "
+    max_idea_len = 200 - len(prefix)
+
+    if max_idea_len <= 0:
+        # source_title quá dài, cắt bớt
+        return f"Trích đoạn từ {source_title}"[:200]
+
+    if len(main_idea) > max_idea_len:
+        # Cắt ở ranh giới từ, trừ 3 cho '...'
+        cut_len = max_idea_len - 3
+        if cut_len <= 0:
+            main_idea = main_idea[:max_idea_len]
+        else:
+            truncated = main_idea[:cut_len]
+            last_space = truncated.rfind(' ')
+            if last_space > cut_len // 2:
+                truncated = truncated[:last_space]
+            main_idea = truncated.rstrip(' ,;:-') + '...'
+
+    return f"{prefix}{main_idea}"
+
+
 def convert_to_standard_objects(
     data: dict[str, Any],
     total_pages: int = 0,
@@ -137,6 +195,8 @@ def convert_to_standard_objects(
         source_file = data.get("source_file", "unknown.pdf")
     if not source_file.endswith(".pdf"):
         source_file += ".pdf"
+    # Normalize: strip _part_XX suffix
+    source_file = normalize_source(source_file)
 
     # Xác định tổng số trang
     if total_pages <= 0 and pdf_path:
@@ -153,35 +213,33 @@ def convert_to_standard_objects(
 
     standard_objects: list[dict[str, Any]] = []
     for i, node in enumerate(nodes):
-        # Lấy tags từ metadata
-        metadata = node.get("metadata", {})
-        raw_tags = metadata.get("tags", [])
-        tags: list[str] = [str(t) for t in raw_tags if t]
-
-        # Thêm domain vào tags nếu có (tránh trùng lặp)
-        domain = metadata.get("domain", "")
-        if domain and domain not in tags:
-            tags = tags + [domain]
-
-        # Chunk ID
         chunk_id = node.get("id", f"chunk_{i:04d}")
 
-        # Page: prefer actual page data from node, fallback to estimation
+        # Page: use marker-based page data; estimation only as absolute last resort
         actual_page = get_node_page(node)
-        page = actual_page if actual_page is not None else (
-            page_numbers[i] if i < len(page_numbers) else 1
-        )
+        if actual_page is not None:
+            page = actual_page
+        elif total_pages > 0 and i < len(page_numbers):
+            page = page_numbers[i]
+            logger.debug(
+                "Node %s has no marker-based page; falling back to estimation (page=%d).",
+                chunk_id, page,
+            )
+        else:
+            page = 1
 
-        # Clean content before export
-        content = clean_text(node.get("content", ""))
+        # Clean content: ensure exactly one context header
+        raw_content = node.get("content", "")
+        final_content = ensure_single_context(source_file, raw_content)
 
+        # Schema tối giản: chỉ source, page, content
         standard_obj: dict[str, Any] = {
             "source": source_file,
             "page": page,
-            "chunk_id": chunk_id,
-            "tags": tags,
-            "content": content
+            "content": final_content,
         }
+        # Lưu chunk_id nội bộ để đặt tên file (không xuất vào JSON)
+        standard_obj["_chunk_id"] = chunk_id
         standard_objects.append(standard_obj)
 
     # Sort by (page, original_index) for deterministic document order
@@ -219,8 +277,8 @@ def export_standard_json_files(
 
     created_files: list[Path] = []
     for i, obj in enumerate(standard_objects):
-        # Tên file dựa trên chunk_id
-        chunk_id = obj.get("chunk_id", f"chunk_{i:04d}")
+        # Tên file dựa trên _chunk_id (internal, not part of output)
+        chunk_id = obj.pop("_chunk_id", f"chunk_{i:04d}")
         filename = f"{chunk_id}.json"
         filepath = output_dir / filename
 

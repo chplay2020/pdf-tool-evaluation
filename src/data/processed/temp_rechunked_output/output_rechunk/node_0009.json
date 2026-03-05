@@ -1,0 +1,17 @@
+[
+  {
+    "source": "node_0009",
+    "page_start": 1,
+    "page_end": 0,
+    "chunk_id": "node_0009_rechunk_0000",
+    "section_path": "Document",
+    "content": "[TABLE_REMOVED: Table_1]",
+    "metadata_rechunk": {
+      "char_count": 41,
+      "token_count": 3,
+      "has_table": false,
+      "header_count": 0,
+      "section_count": 0
+    }
+  }
+]

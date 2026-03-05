@@ -1,23 +1,25 @@
 {
-  "id": "test-22_part_02_node_0000",
-  "content": "- Người bệnh có yếu tố nguy cơ hoặc biểu hiện nghi ngờ nhiễm cúm: Sử dụng test nhanh để sàng lọc.\n - Để chấn đoán xác định bệnh hoặc cần xác định các subtype vi rút cúm có thể sử dụng: RT-PCR hoặc Multiplex-PCR.\n - Nuôi cấy phân lập vi rút, giải trình tự gene: khi nghi ngờ có biến chủng mới có nguy cơ gây đại dịch, định type vi rút và xác định tình trạng kháng thuốc (nếu có điều kiện). #### 2. 2. Cận lâm sàng khác\nMột số xét nghiệm khác nên được thực hiện ở người bệnh nhiễm cúm nặng và nguy kịch\n- Xét nghiệm đánh giá tình trạng viêm: Công thức máu, CRP, Procalcitonin, cytokines.\n- Các xét nghiệm vi sinh xác định tác nhân bội nhiễm: nhuộm soi, nuôi cấy bệnh phẩm hô hấp, nuôi cấy máu, nên được thực hiện ở các người bệnh có biểu hiện nghi ngờ bội nhiễm vi khuẩn, nấm.\n- Các xét nghiệm đánh giá chức năng các cơ quan: gan, thận, tình trạng đông máu, khí máu. nên được làm ở người bệnh cúm nặng có biểu hiện suy các cơ quan.\n- X-quang phổi hoặc chụp cắt lớp vi tính lồng ngực: Chỉ định khi có biểu hiện nghi ngờ có viêm phổi hoặc có tình trang suy hô hấp.\n- Siêu âm phổi: đánh giá mức độ và tiến triển tình trạng tổn thương phổi nặng ở người bệnh nghi ngờ hoặc khẳng định nhiễm cúm có tổn thương phổi. Các xét nghiệm khác để đánh giá tình trạng tiến triển hoặc theo dõi bệnh lý nền của người bệnh tùy theo từng trường hợp cụ thể. #### 2. 3.",
-  "section": "2. 1. Xét nghiệm vi sinh chẩn đoán cúm mùa",
+  "id": "chuẩn-đoán-và-điều-trị-cúm-mùa_node_0002",
+  "content": "Căn cứ Luật Khám bệnh, chữa bệnh năm 2023;\nCăn cứ Nghị định số 42/2025/NĐ-CP ngày 27 tháng 2 năm 2025 của Chính phủ quy định chức năng, nhiệm vụ, quyền hạn và cơ cấu tổ chức của Bộ Y tế;\nTheo đề nghị của Cục trưởng Cục Quản lý khám, chữa bệnh. ## **QUYÉT ĐỊNH:**\n- **Điều 1.** Ban hành kèm theo Quyết định này \"Hướng dẫn chẩn đoán và điều trị cúm mùa\".\n- **Điều 2.** Hướng dẫn chẩn đoán và điều trị cúm mùa được áp dụng tại các cơ sở khám bệnh, chữa bệnh trong cả nước.\n- **Điều 3.** Quyết định này có hiệu lực kể từ ngày ký ban hành. Quyết định này thay thế Quyết định số 2078/QĐ-BYT ngày 23/6/2011 của Bộ trưởng Bộ Y tế về việc ban hành Hướng dẫn chẩn đoán, điều trị cúm mùa.\n- **Điều 4.** Các ông, bà: Chánh Văn phòng Bộ, Cục trưởng Cục Quản lý Khám, chữa bệnh, Chánh Thanh tra Bộ, các Vụ trưởng, Cục trưởng của các Vụ/Cục thuộc Bộ Y tế; Giám đốc các cơ sở khám bệnh, chữa bệnh trực thuộc Bộ Y tế; Giám đốc Sở Y tế các tỉnh, thành phố trực thuộc Trung ương; Thủ trưởng Y tế các Bộ, ngành; Thủ trưởng các đơn vị có liên quan chịu trách nhiệm thi hành Quyết định này./. Nơi nhân:\n- Như điều 4;\n- Bộ trưởng (để báo cáo);\n- Các Thứ trưởng (để phối hợp chỉ đạo);\n- Luu: VT; KCB. KT. BỘ TRƯỞNG THỨ TRƯỞNG\nTrần Văn Thuấn\ntienph. kcb\\_Pham Hung Tien\\_04/06/2025 08: 01: 06",
+  "section": "BỘ TRƯỞNG BỘ Y TẾ",
   "metadata": {
-    "doc_id": "test-22_part_02",
-    "node_index": 0,
-    "token_estimate": 335,
+    "doc_id": "chuẩn-đoán-và-điều-trị-cúm-mùa",
+    "node_index": 2,
+    "token_estimate": 316,
+    "source_char_pos": 289,
     "page_start": 1,
-    "page_end": 1,
-    "source_char_pos": 68
+    "page_end": 2
   },
+  "page_start": 1,
+  "page_end": 2,
   "page": 1,
-  "chunk_id": "test-22_part_02_node_0000",
-  "source": "test-22_part_02",
+  "chunk_id": "chuẩn-đoán-và-điều-trị-cúm-mùa_node_0002",
+  "source": "chuẩn-đoán-và-điều-trị-cúm-mùa",
   "tags": [],
   "metadata_clean": {
     "actions": [],
     "flags": {
-      "is_administrative": false,
+      "is_administrative": true,
       "is_name_list": false,
       "is_toc": false
     },

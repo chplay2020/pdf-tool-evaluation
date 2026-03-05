@@ -1,0 +1,30 @@
+[
+  {
+    "id": "chuẩn-đoán-và-điều-trị-cúm-mùa_node_0014",
+    "content": "- 1. Clinical practice guidelines for influenza. Geneva: World Health Organization; 2024. Licence: CC BY-NC-SA 3. 0 IGO.\n- 2. Guidelines for the clinical management of severe illness from influenza virus infections. Geneva: World Health Organization; 2021. Licence: CC BY-NC-SA 3. 0 IGO.\n- 3. https://dav. gov. vn/upload/attach/4122015\\_influvac. pdf\n- 4. https://dav. gov. vn/upload/attach/4122015\\_vaxigrip\\_0\\_25ml. pdf\n- 5. https://dav. gov. vn/upload/attach/4122015\\_influvac. pdf",
+    "section": "Tài liệu tham khảo:",
+    "metadata": {
+      "doc_id": "chuẩn-đoán-và-điều-trị-cúm-mùa",
+      "node_index": 14,
+      "token_estimate": 121,
+      "source_char_pos": -1,
+      "page_start": null,
+      "page_end": null
+    },
+    "page_start": null,
+    "page_end": null,
+    "page": null,
+    "chunk_id": "chuẩn-đoán-và-điều-trị-cúm-mùa_node_0014",
+    "source": "chuẩn-đoán-và-điều-trị-cúm-mùa",
+    "tags": [],
+    "metadata_clean": {
+      "actions": [],
+      "flags": {
+        "is_administrative": false,
+        "is_name_list": false,
+        "is_toc": false
+      },
+      "warnings": []
+    }
+  }
+]

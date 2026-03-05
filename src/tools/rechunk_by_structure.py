@@ -420,17 +420,27 @@ class RechunkPipeline:
             print(f"WARNING: {json_file} is neither dict nor list")
             return
         
-        # Sort by page
-        nodes.sort(key=lambda n: n.get('page', 0))
+        # Sort by page_start (marker-based), then by page, then by 0
+        nodes.sort(key=lambda n: (
+            n.get('page_start',
+                   n.get('page',
+                         n.get('metadata', {}).get('page_start', 0))),
+        ))
         
         # Build document with page markers
         content_parts: List[str] = []
         page_to_line: Dict[int, int] = {}  # Map: line_num -> page_num
         
         for node in nodes:
-            page = node.get('page',
-                          node.get('page_start',
-                                   node.get('metadata', {}).get('page_start', 0)))
+            # Use marker-based page_start as primary source
+            page = (
+                node.get('page_start')
+                or node.get('page')
+                or node.get('metadata', {}).get('page_start')
+                or 0
+            )
+            if not isinstance(page, int) or page < 1:
+                page = 0
             content = node.get('content', '')
             
             # Record line number of page marker

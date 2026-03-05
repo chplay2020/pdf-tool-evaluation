@@ -21,6 +21,7 @@ from typing import Any
 
 from split_pdf import split_pdf_by_pages, get_pdf_page_count
 from pipeline.cleaning_v1 import clean_text
+from pipeline.text_utils import ensure_single_context, normalize_source
 # Note: Import run_full_pipeline inside functions to avoid circular import
 
 # Configure logging
@@ -162,17 +163,11 @@ def process_pdf_chunks_internal(
             nodes = output.get("nodes", [])
             for node in nodes:
                 md = node.get("metadata", {})
-                # Get local page from node (estimated within sub-PDF)
-                local_ps = (
-                    node.get("page_start")
-                    or md.get("page_start")
-                    or node.get("page", 1)
-                )
-                local_pe = (
-                    node.get("page_end")
-                    or md.get("page_end")
-                    or local_ps
-                )
+                # Get local page from node (marker-based within sub-PDF)
+                local_ps = node.get("page_start") or md.get("page_start")
+                local_pe = node.get("page_end") or md.get("page_end")
+
+                # Fallback: if marker-based tracking returned None, use 1
                 if not isinstance(local_ps, int) or local_ps < 1:
                     local_ps = 1
                 if not isinstance(local_pe, int) or local_pe < 1:
@@ -224,6 +219,8 @@ def process_pdf_chunks_internal(
         final_nodes.append(node)
 
     # Save standard JSON files
+    # Normalize source: strip _part_XX, ensure .pdf
+    normalized_source = normalize_source(f"{doc_id}.pdf")
     for node in final_nodes:
         chunk_id = node.get("id", "")
         filename = f"{chunk_id}.json"
@@ -240,7 +237,7 @@ def process_pdf_chunks_internal(
         page = node.get("page_start", metadata.get("page_start", 1))
 
         standard_obj: dict[str, Any] = {  # type: ignore[valid-type]
-            "source": f"{doc_id}.pdf",
+            "source": normalized_source,
             "page": page,
             "chunk_id": chunk_id,
             "tags": tags,
@@ -252,6 +249,33 @@ def process_pdf_chunks_internal(
 
     logger.info(f"  ✓ Exported {len(final_nodes)} standard JSON files to {output_dir}")
     logger.info("")
+
+    # Export cleaned_final/ — minimal {source, page, content}
+    cleaned_final_dir = Path("cleaned_final")
+    cleaned_final_dir.mkdir(parents=True, exist_ok=True)
+    minimal_records: list[dict[str, Any]] = []  # type: ignore[valid-type]
+    for i, node in enumerate(final_nodes):
+        pg = node.get("page_start", node.get("metadata", {}).get("page_start", 1))
+        if not isinstance(pg, int) or pg < 1:
+            pg = 1
+        raw_content = node.get("content", "")
+        content = ensure_single_context(normalized_source, raw_content)
+        record: dict[str, Any] = {  # type: ignore[valid-type]
+            "source": normalized_source,
+            "page": pg,
+            "content": content,
+        }
+        minimal_records.append(record)
+        chunk_id = node.get("id", f"chunk_{i:04d}")
+        cf_path = cleaned_final_dir / f"{chunk_id}.json"
+        with open(cf_path, "w", encoding="utf-8") as f:
+            json.dump(record, f, ensure_ascii=False, indent=2)
+
+    base_name = normalized_source.replace('.pdf', '')
+    final_json_path = cleaned_final_dir / f"{base_name}_final.json"
+    with open(final_json_path, "w", encoding="utf-8") as f:
+        json.dump(minimal_records, f, ensure_ascii=False, indent=2)
+    logger.info(f"  ✓ {len(minimal_records)} cleaned_final records → {cleaned_final_dir}")
 
     # Summary
     logger.info("=" * 60)

@@ -1,0 +1,29 @@
+{
+  "id": "chuẩn-đoán-và-điều-trị-cúm-mùa_node_0004",
+  "content": "[TABLE_REMOVED: Table_1]",
+  "section": "MỤC LỤC",
+  "metadata": {
+    "doc_id": "chuẩn-đoán-và-điều-trị-cúm-mùa",
+    "node_index": 4,
+    "token_estimate": 6,
+    "has_table_placeholder": true,
+    "source_char_pos": -1,
+    "page_start": null,
+    "page_end": null
+  },
+  "page_start": null,
+  "page_end": null,
+  "page": null,
+  "chunk_id": "chuẩn-đoán-và-điều-trị-cúm-mùa_node_0004",
+  "source": "chuẩn-đoán-và-điều-trị-cúm-mùa",
+  "tags": [],
+  "metadata_clean": {
+    "actions": [],
+    "flags": {
+      "is_administrative": false,
+      "is_name_list": false,
+      "is_toc": false
+    },
+    "warnings": []
+  }
+}

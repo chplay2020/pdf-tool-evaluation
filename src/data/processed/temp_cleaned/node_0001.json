@@ -1,17 +1,19 @@
 {
-  "id": "test-22_part_02_node_0001",
-  "content": "Phân độ lâm sàng bệnh\n- **Cúm nhẹ**: Người bệnh chỉ có triệu chứng của đường hô hấp trên, không có bất kỳ biểu hiện nào của cúm nặng. #### - Cúm nặng:\n - Biểu hiện suy hô hấp: Khó thở, thở nhanh, thở gắng sức hoặc cần hỗ trợ hô hấp để đảm bảo mục tiêu SpO2 > 95%.\n - Biểu hiện suy các cơ quan khác: rối loạn tri giác, sốc, hoặc suy đa cơ quan khác.\n- Các yếu tố nguy cơ nhiễm cúm nặng: Khai thác, đánh giá các yếu tố nguy cơ nhiễm nặng, bao gồm:\n - Tuổi cao > 65 tuổi.\n - Có tình trạng suy giảm miễn dịch.\n - Có bệnh nền: Bệnh tim mạch mãn tính, Bệnh phổi mãn tính, Suy thận, Xơ gan, tiểu đường.\n - Trẻ em < 5 tuổi (nhất là < 2 tuổi).\n - Phụ nữ mang thai (đặc biệt là 3 tháng cuối) hoặc mới sinh 2 tuần. #### 2. 4. Chẩn đoán",
-  "section": "2. 1. Xét nghiệm vi sinh chẩn đoán cúm mùa",
+  "id": "chuẩn-đoán-và-điều-trị-cúm-mùa_node_0007",
+  "content": "Cúm mùa (Seasonal Influenza) là một bệnh nhiễm trùng hô hấp cấp tính do những chủng vi rút cúm đang lưu hành (A/H1N1; A/H3N2; B) gây ra. Bệnh lây truyền qua đường hô hấp, chủ yếu qua giọt bắn hô hấp hoặc qua tiếp xúc với các bề mặt bị nhiễm vi rút. Bệnh thường biểu hiện nhẹ nhưng cũng có thể diễn biến nặng có nguy cơ đe dọa tính mạng cao. Nhóm nguy cơ diễn biến nặng gồm: Phụ nữ mang thai, người già (>65 tuổi), trẻ nhỏ, người có bệnh nền, người bị suy giảm miễn dịch. Bệnh xảy ra quanh năm nhưng thường tăng cao vào mùa đông xuân. Bệnh đã có vắc xin phòng bệnh. #### II. CHẨN ĐOÁN",
+  "section": "I. ĐẠI CƯƠNG",
   "metadata": {
-    "doc_id": "test-22_part_02",
-    "node_index": 1,
-    "token_estimate": 179,
-    "page_start": 2,
-    "page_end": 2,
-    "source_char_pos": 1412
+    "doc_id": "chuẩn-đoán-và-điều-trị-cúm-mùa",
+    "node_index": 7,
+    "token_estimate": 145,
+    "source_char_pos": 5212,
+    "page_start": 6,
+    "page_end": 6
   },
-  "page": 2,
-  "chunk_id": "test-22_part_02_node_0001",
-  "source": "test-22_part_02",
+  "page_start": 6,
+  "page_end": 6,
+  "page": 6,
+  "chunk_id": "chuẩn-đoán-và-điều-trị-cúm-mùa_node_0007",
+  "source": "chuẩn-đoán-và-điều-trị-cúm-mùa",
   "tags": []
 }

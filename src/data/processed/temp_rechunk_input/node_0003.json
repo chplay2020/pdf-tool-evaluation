@@ -1,18 +1,20 @@
 {
-  "id": "test-22_part_02_node_0003",
-  "content": "- Bố trí khu vực điều trị riêng giúp ngăn ngừa lây nhiễm.\n- Điều trị thuốc kháng vi rút phù hợp.\n- Điều trị triệu chứng và bệnh lý nền kết hợp nếu có.\n- Theo dõi, phát hiện và xử trí các biểu hiện nặng của bệnh.\n- Điều trị hỗ trợ và phục hồi chức năng. ## 2. Điều trị cụ thể",
-  "section": "1. Nguyên tắc điều trị",
+  "id": "chuẩn-đoán-và-điều-trị-cúm-mùa_node_0011",
+  "content": "Biểu hiện triệu chứng viêm đường hô hấp cấp, hoặc có biểu hiện suy hô hấp tiến triển nhanh và có yếu tố dịch tễ (tiếp xúc gần với người bệnh được khẳng định cúm hoặc ở trong khu vực đang có dịch cúm mùa lưu hành). ## 2. 4. 2. Ca bệnh khẳng định\nCa bệnh nghi ngờ có kết quả xét nghiệm phát hiện vi rút cúm dương tính bằng kỹ thuật test nhanh, RT-PCR, Multiplex-PCR. ## 2. 4. 3. Chẩn đoán phân biệt\nNên thực hiện các xét nghiệm để chẩn đoán phân biệt với các căn nguyên gây nhiễm trùng đường hô hấp khác trong trường hợp nghi ngờ cúm mà xét nghiệm khẳng định cúm âm tính. ## III. ĐIỀU TRỊ",
+  "section": "2. 4. 1. Ca bệnh nghi ngờ",
   "metadata": {
-    "doc_id": "test-22_part_02",
-    "node_index": 3,
-    "token_estimate": 68,
-    "page_start": 3,
-    "page_end": 3,
-    "source_char_pos": 2776
+    "doc_id": "chuẩn-đoán-và-điều-trị-cúm-mùa",
+    "node_index": 11,
+    "token_estimate": 146,
+    "source_char_pos": 8983,
+    "page_start": 8,
+    "page_end": 8
   },
-  "page": 3,
-  "chunk_id": "test-22_part_02_node_0003",
-  "source": "test-22_part_02",
+  "page_start": 8,
+  "page_end": 8,
+  "page": 8,
+  "chunk_id": "chuẩn-đoán-và-điều-trị-cúm-mùa_node_0011",
+  "source": "chuẩn-đoán-và-điều-trị-cúm-mùa",
   "tags": [],
   "metadata_clean": {
     "actions": [],

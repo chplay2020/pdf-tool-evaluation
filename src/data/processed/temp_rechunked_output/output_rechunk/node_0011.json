@@ -1,0 +1,17 @@
+[
+  {
+    "source": "node_0011",
+    "page_start": 1,
+    "page_end": 0,
+    "chunk_id": "node_0011_rechunk_0000",
+    "section_path": "Document",
+    "content": "(Ban hành kèm theo Quyết định số 1840/QĐ-BYT ngày 03 / 6 /2025)",
+    "metadata_rechunk": {
+      "char_count": 80,
+      "token_count": 14,
+      "has_table": false,
+      "header_count": 0,
+      "section_count": 0
+    }
+  }
+]

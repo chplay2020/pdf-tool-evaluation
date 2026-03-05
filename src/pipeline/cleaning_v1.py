@@ -50,10 +50,11 @@ def remove_page_markers(text: str) -> str:
     Handles every whitespace variant inside the comment:
         <!--PAGE:0-->  <!-- PAGE : 12 -->  <!--PAGE_START-->  etc.
 
-    Also collapses leftover blank lines so that the removal does not
-    introduce extra vertical whitespace.
+    Also removes trailing whitespace/newline after the marker so that the
+    removal does not introduce extra blank lines.
     """
-    text = _PAGE_COMMENT_RE.sub('', text)
+    # Remove the marker AND optional trailing whitespace + one newline
+    text = re.sub(r'<!--\s*PAGE[^>]*?-->\s*\n?', '', text, flags=re.IGNORECASE)
     text = _PARSED_TEXT_PAGE_RE.sub('', text)
     return text
 
@@ -373,10 +374,38 @@ def clean_ocr_artifacts(text: str) -> str:
     return text
 
 
+def clean_text_basic(text: str) -> str:
+    """
+    Unicode-only text cleanup — **does NOT remove page markers**.
+
+    Use this when you need clean text but want to preserve embedded
+    ``<!--PAGE:N-->`` markers (e.g. before prepending a marker or when
+    the markers are needed for page tracking downstream).
+
+    Steps (in order):
+        1. Remove BOM, ZWSP, ZWNJ, ZWJ, replacement char (\\ufffd).
+        2. NBSP → regular space.
+        3. Remove non-printable control chars (preserve \\n, \\t, \\r).
+        4. Trim trailing spaces per line.
+        5. Collapse 3+ consecutive newlines → 2.
+        6. Strip leading blank lines.
+    """
+    text = remove_invisible_chars(text)
+    lines = text.split('\n')
+    lines = [line.rstrip() for line in lines]
+    text = '\n'.join(lines)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = text.lstrip('\n')
+    return text.strip()
+
+
 def clean_text(text: str) -> str:
     """
-    Unified text-cleaning function.  Call this before export to guarantee
-    the content is free of page markers and invisible characters.
+    Unified text-cleaning function.  Call this **before export** to
+    guarantee the content is free of page markers *and* invisible
+    characters.
+
+    Equivalent to ``clean_text_basic(remove_page_markers(text))``.
 
     Steps (in order):
         1. Remove BOM \\ufeff, ZWSP \\u200b \\u200c \\u200d, replacement \\ufffd
@@ -387,17 +416,7 @@ def clean_text(text: str) -> str:
         6. Collapse 3+ consecutive newlines → 2
         7. Strip leading blank lines
     """
-    text = remove_invisible_chars(text)
-    text = remove_page_markers(text)
-    # Trim trailing spaces per line
-    lines = text.split('\n')
-    lines = [line.rstrip() for line in lines]
-    text = '\n'.join(lines)
-    # Collapse 3+ newlines → 2
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    # Strip leading blank lines
-    text = text.lstrip('\n')
-    return text.strip()
+    return clean_text_basic(remove_page_markers(text))
 
 
 def clean_marker_output(marker_json: dict[str, Any]) -> dict[str, Any]:

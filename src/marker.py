@@ -152,6 +152,27 @@ def setup_gpu_optimization(env: dict) -> None:
     print("Note: GPU optimization enabled (CUDA async)")
 
 
+def extract_per_page_text(pdf_path: str) -> str:
+    """
+    Extract per-page text from a PDF using PyMuPDF and return a single
+    string with embedded ``<!--PAGE:N-->`` markers (1-indexed).
+
+    This is the **canonical** way to build page-annotated content.
+    The page markers serve as the "source of truth" for downstream
+    page tracking.
+
+    Delegates to :func:`pipeline.page_utils.extract_per_page_text`.
+
+    Args:
+        pdf_path: Path to the PDF file.
+
+    Returns:
+        Full text with page markers.
+    """
+    from pipeline.page_utils import extract_per_page_text as _extract
+    return _extract(pdf_path)
+
+
 def run_marker_conversion_to_json(
     input_pdf: str,
     output_json: str,

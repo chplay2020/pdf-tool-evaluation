@@ -42,8 +42,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pipeline.cleaning_v1 import clean_marker_output
 from pipeline.final_cleaning import final_clean_content
-from pipeline.chunking import chunk_to_nodes, estimate_tokens
+from pipeline.chunking import chunk_to_nodes
 from pipeline.audit_nodes import audit_and_merge_nodes, generate_audit_report, HIGH_RISK_KEYWORDS
+from pipeline.text_utils import ensure_single_context, normalize_source
+from pipeline.page_utils import (
+    extract_per_page_text,
+    assign_pages_to_nodes,
+    parse_page_markers as parse_markers,
+)
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -229,8 +235,14 @@ def rechunk_by_structure(
     min_chars: int = 2000,
     max_chars: int = 0,
     stats: PipelineStats | None = None,
+    pdf_path: str = "",
 ) -> list[dict[str, Any]]:
-    """Rechunk nodes by document structure."""
+    """Rechunk nodes by document structure.
+
+    If *pdf_path* is given, page numbers are derived from PyMuPDF
+    per-page extraction (``<!--PAGE:N-->`` markers) instead of relying
+    on potentially inaccurate metadata from input nodes.
+    """
     if max_chars <= 0:
         max_chars = int(target_chars * 1.8)
 
@@ -245,17 +257,29 @@ def rechunk_by_structure(
 
     output_chunks: list[dict[str, Any]] = []
 
+    # -- Optionally build paged reference from PDF for accurate pages --
+    paged_content: str = ""
+    paged_ranges: list[dict[str, int]] = []
+    if pdf_path:
+        try:
+            paged_content = extract_per_page_text(pdf_path)
+            paged_ranges = parse_markers(paged_content)
+            logger.info(f"Extracted {len(paged_ranges)} page markers from PDF")
+        except Exception as exc:
+            logger.warning(f"Could not extract per-page text from PDF: {exc}")
+
     for source, source_nodes in by_source.items():
         source_nodes.sort(key=lambda n: (
             n.get('page_start',
                   n.get('page',
                         n.get('metadata', {}).get('page_start', 0))),
+            n.get('metadata', {}).get('source_char_pos', 0),
             n.get('id', ''),
         ))
 
         # Merge all content
         merged_content = ''
-        page_markers: list[tuple[int, int]] = []
+        page_markers_list: list[tuple[int, int]] = []
 
         for node in source_nodes:
             md = node.get('metadata', {})
@@ -263,26 +287,23 @@ def rechunk_by_structure(
                 node.get('page_start')
                 or node.get('page')
                 or md.get('page_start')
-                or md.get('node_index', 0) + 1
+                or 0
             )
-            if not isinstance(page, int) or page < 1:
-                page = 1
+            if not isinstance(page, int) or page < 0:
+                page = 0
             content = node.get('content', '')
             if merged_content:
                 merged_content += '\n\n'
-            page_markers.append((len(merged_content), page))
+            page_markers_list.append((len(merged_content), page))
             merged_content += content
 
         if not merged_content.strip():
             continue
 
-        # Page markers are already removed by cleaning_v1; belt-and-suspenders
+        # Belt-and-suspenders: remove stale page markers
         merged_content = re.sub(r'<!--\s*PAGE\s*:?\s*\d*\s*-->', '', merged_content, flags=re.IGNORECASE)
-        # Also catch PAGE_START/PAGE_END variants
         merged_content = re.sub(r'<!--\s*PAGE[_\s][^>]*?-->', '', merged_content, flags=re.IGNORECASE)
-        # Strip invisible / control chars
         merged_content = strip_control_chars(merged_content)
-        # Collapse resulting blank-line runs
         merged_content = re.sub(r'\n{3,}', '\n\n', merged_content)
 
         # Analysis
@@ -308,14 +329,11 @@ def rechunk_by_structure(
             chunk_content = merged_content[current_start:break_pos].strip()
 
             if chunk_content:
-                chunk_page = _page_at(current_start, page_markers)
-
-                section_path = 'Document'
-                for pos, title, _level in boundaries:
-                    if pos <= current_start:
-                        section_path = title[:60]
-
-                chunk_page_end = _page_at(break_pos - 1 if break_pos > current_start else current_start, page_markers)
+                chunk_page = _page_at(current_start, page_markers_list)
+                chunk_page_end = _page_at(
+                    break_pos - 1 if break_pos > current_start else current_start,
+                    page_markers_list,
+                )
 
                 chunk_id = f"{Path(source).stem}_chunk_{chunk_idx:04d}"
 
@@ -325,15 +343,7 @@ def rechunk_by_structure(
                     'page_start': chunk_page if chunk_page > 0 else 1,
                     'page_end': chunk_page_end if chunk_page_end > 0 else (chunk_page if chunk_page > 0 else 1),
                     'chunk_id': chunk_id,
-                    'section_path': section_path,
-                    'tags': source_nodes[0].get('tags', []) if source_nodes else [],
                     'content': chunk_content,
-                    'metadata': {
-                        'char_count': len(chunk_content),
-                        'token_count': estimate_tokens(chunk_content),
-                        'page_start': chunk_page if chunk_page > 0 else 1,
-                        'page_end': chunk_page_end if chunk_page_end > 0 else (chunk_page if chunk_page > 0 else 1),
-                    },
                 }
                 output_chunks.append(new_chunk)
                 chunk_idx += 1
@@ -344,6 +354,24 @@ def rechunk_by_structure(
 
         if stats:
             stats.output_chunks += chunk_idx
+
+    # -- Post-rechunk: re-assign pages from PDF if available --
+    if paged_content and paged_ranges:
+        assign_pages_to_nodes(output_chunks, paged_content)
+        # Update top-level page from assigned page_start
+        for ch in output_chunks:
+            ps = ch.get('page_start')
+            if isinstance(ps, int) and ps > 0:
+                ch['page'] = ps
+
+    # -- Sort by (page_start, source_char_pos, seq) --
+    output_chunks.sort(key=lambda c: (
+        c.get('page_start') if isinstance(c.get('page_start'), int) else 999999,
+        c.get('metadata', {}).get('source_char_pos', 0)
+        if c.get('metadata', {}).get('source_char_pos', -1) >= 0
+        else 999999,
+        c.get('chunk_id', ''),
+    ))
 
     return output_chunks
 
@@ -486,10 +514,15 @@ def run_pipeline(
     target_chars: int = 8000,
     max_chars: int = 0,
     dry_run: bool = False,
+    pdf_path: str = "",
 ) -> PipelineStats:
     """
     Run the full pipeline:
     Cleaning V1 -> Final Cleaning (table placeholder) -> Chunking -> Audit -> Export
+
+    Args:
+        pdf_path: Path to the original PDF for accurate page assignment
+                  via PyMuPDF per-page extraction.
     """
     stats = PipelineStats()
     
@@ -562,6 +595,7 @@ def run_pipeline(
                 target_chars=target_chars,
                 max_chars=max_chars,
                 stats=stats,
+                pdf_path=pdf_path,
             )
             all_output_nodes.extend(rechunked)
         else:
@@ -574,35 +608,59 @@ def run_pipeline(
                     "page_start": pg,
                     "page_end": md.get("page_end", pg),
                     "chunk_id": node.get("id", "unknown"),
-                    "tags": md.get("tags", []),
                     "content": node.get("content", ""),
-                    "metadata": md,
                 }
-                if "quality_flags" in node:
-                    output_node["quality_flags"] = node["quality_flags"]
                 all_output_nodes.append(output_node)
     
     stats.output_chunks = len(all_output_nodes)
 
-    # Save output
+    # ---------------------------------------------------------------
+    # EXPORT: minimal {source, page, content} with single context line
+    # ---------------------------------------------------------------
     if not dry_run:
         output_dir.mkdir(parents=True, exist_ok=True)
-        
         logger.info(f"Saving {len(all_output_nodes)} final chunks to {output_dir}")
-        save_nodes(all_output_nodes, output_dir)
-        
-        # Also save combined JSON for each document
+
+        minimal_records: list[dict[str, Any]] = []
+        for i, node in enumerate(all_output_nodes):
+            source_name = node.get('source', 'unknown')
+            if not source_name.endswith('.pdf'):
+                source_name += '.pdf'
+            source_name = normalize_source(source_name)
+            page = node.get('page', node.get('page_start', 1))
+            if not isinstance(page, int) or page < 1:
+                page = 1
+            raw_content = node.get('content', '')
+            content = ensure_single_context(source_name, raw_content)
+
+            record: dict[str, Any] = {
+                'source': source_name,
+                'page': page,
+                'content': content,
+            }
+            minimal_records.append(record)
+
+            # Write per-chunk file
+            chunk_id = node.get('chunk_id', node.get('id', f'chunk_{i:04d}'))
+            filepath = output_dir / f"{chunk_id}.json"
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(record, f, ensure_ascii=False, indent=2)
+
+        # Write combined *_final.json as a plain JSON ARRAY of records
         for processed in all_processed:
-            doc_id = processed.get("source_file", "unknown").replace(".pdf", "")
-            doc_id = re.sub(r'[^\w\-]', '_', doc_id)
-            
-            final_path = output_dir / f"{doc_id}_final.json"
-            save_single_json({
-                "source_file": processed.get("source_file"),
-                "metadata": processed.get("metadata", {}),
-                "audit_stats": processed.get("audit_stats", {}),
-                "nodes": processed.get("nodes", []),
-            }, final_path)
+            src = processed.get('source_file', 'unknown').replace('.pdf', '')
+            doc_slug = re.sub(r'[^\w\-]', '_', src)
+            final_path = output_dir / f"{doc_slug}_final.json"
+            # Collect records belonging to this source
+            source_records = [
+                r for r in minimal_records
+                if r['source'].replace('.pdf', '') == src
+                or re.sub(r'[^\w\-]', '_', r['source'].replace('.pdf', '')) == doc_slug
+            ]
+            if not source_records:
+                source_records = minimal_records  # fallback
+            with open(final_path, 'w', encoding='utf-8') as f:
+                json.dump(source_records, f, ensure_ascii=False, indent=2)
     else:
         logger.info(f"[DRY RUN] Would save {len(all_output_nodes)} chunks to {output_dir}")
 
@@ -689,6 +747,10 @@ Examples:
         '--dry-run', action='store_true',
         help='Preview without writing files',
     )
+    parser.add_argument(
+        '--pdf', type=str, default='',
+        help='Path to the original PDF file for accurate page assignment',
+    )
 
     args = parser.parse_args()
 
@@ -719,6 +781,7 @@ Examples:
         target_chars=args.target_chars,
         max_chars=args.max_chars,
         dry_run=args.dry_run,
+        pdf_path=args.pdf,
     )
 
     print_stats(stats)
